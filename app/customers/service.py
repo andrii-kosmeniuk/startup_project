@@ -1,10 +1,16 @@
 from app.customers.schemas import Customer, CustomerLookupResponse, MatchStatus
-from app.data.mock_data import CUSTOMERS, TICKETS
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.data.models import CustomerRecord, TicketRecord
 from app.tickets.schemas import Ticket, TicketStatus
 
 
-def find_by_phone(phone: str) -> CustomerLookupResponse:
-    matches = [customer for customer in CUSTOMERS if customer.phone == phone]
+def find_by_phone(phone: str, session: Session) -> CustomerLookupResponse:
+    records = session.scalars(
+        select(CustomerRecord).where(CustomerRecord.phone == phone)
+    ).all()
+    matches = [Customer.model_validate(record) for record in records]
     if not matches:
         status = MatchStatus.NOT_FOUND
     elif len(matches) == 1:
@@ -15,13 +21,15 @@ def find_by_phone(phone: str) -> CustomerLookupResponse:
     return CustomerLookupResponse(status=status, count=len(matches), customers=matches)
 
 
-def customer_exists(customer_id: str) -> bool:
-    return any(customer.id == customer_id for customer in CUSTOMERS)
+def customer_exists(customer_id: str, session: Session) -> bool:
+    return session.get(CustomerRecord, customer_id) is not None
 
 
-def get_open_tickets(customer_id: str) -> list[Ticket]:
-    return [
-        ticket
-        for ticket in TICKETS
-        if ticket.customer_id == customer_id and ticket.status != TicketStatus.CLOSED
-    ]
+def get_open_tickets(customer_id: str, session: Session) -> list[Ticket]:
+    records = session.scalars(
+        select(TicketRecord).where(
+            TicketRecord.customer_id == customer_id,
+            TicketRecord.status != TicketStatus.CLOSED.value,
+        )
+    ).all()
+    return [Ticket.model_validate(record) for record in records]

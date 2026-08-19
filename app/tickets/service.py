@@ -1,6 +1,8 @@
 from uuid import uuid4
 
-from app.data.mock_data import CUSTOMERS, PROPERTIES, TICKETS
+from sqlalchemy.orm import Session
+
+from app.data.models import CustomerRecord, PropertyRecord, TicketRecord
 from app.tickets.schemas import Ticket, TicketCreate, TicketStatus
 
 
@@ -8,21 +10,21 @@ class InvalidTicketReferenceError(ValueError):
     pass
 
 
-def create_ticket(request: TicketCreate) -> Ticket:
-    customer = next(
-        (item for item in CUSTOMERS if item.id == request.customer_id), None
-    )
+def create_ticket(request: TicketCreate, session: Session) -> Ticket:
+    customer = session.get(CustomerRecord, request.customer_id)
     if customer is None:
         raise InvalidTicketReferenceError("Customer not found")
-    if not any(item.id == request.property_id for item in PROPERTIES):
+    if session.get(PropertyRecord, request.property_id) is None:
         raise InvalidTicketReferenceError("Property not found")
     if customer.property_id != request.property_id:
         raise InvalidTicketReferenceError("Customer does not belong to this property")
 
-    ticket = Ticket(
+    record = TicketRecord(
         id=f"ticket-{uuid4().hex}",
-        status=TicketStatus.OPEN,
-        **request.model_dump(),
+        status=TicketStatus.OPEN.value,
+        **request.model_dump(mode="json"),
     )
-    TICKETS.append(ticket)
-    return ticket
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+    return Ticket.model_validate(record)

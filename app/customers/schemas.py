@@ -1,9 +1,11 @@
 from enum import Enum
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class Customer(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     first_name: str
     last_name: str

@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TicketPriority(str, Enum):
@@ -24,5 +24,7 @@ class TicketCreate(BaseModel):
 
 
 class Ticket(TicketCreate):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     status: TicketStatus

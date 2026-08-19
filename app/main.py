@@ -1,13 +1,26 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from app.customers.router import router as customers_router
 from app.properties.router import router as properties_router
 from app.tickets.router import router as tickets_router
+from app.data.database import Base, SessionLocal, engine
+from app.data.seed import seed_database
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    Base.metadata.create_all(bind=engine)
+    with SessionLocal() as session:
+        seed_database(session)
+    yield
 
 app = FastAPI(
     title="Fonio FDE Lab",
     description="Mock integration API for HausPilot Immobilienverwaltung GmbH.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 app.include_router(customers_router)

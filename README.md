@@ -2,10 +2,10 @@
 
 A runnable foundation that simulates Fonio calling an n8n workflow, which then
 uses a FastAPI integration service to access HausPilot Immobilienverwaltung
-GmbH's mock property-management systems.
+GmbH's PostgreSQL-backed property-management system.
 
 ```text
-Fonio -> n8n -> HTTP -> FastAPI -> in-memory customer systems
+Fonio -> n8n -> HTTP -> FastAPI -> PostgreSQL
 ```
 
 ## Run
@@ -16,7 +16,9 @@ docker compose up --build
 ```
 
 FastAPI is available at <http://localhost:8000> (interactive docs at
-<http://localhost:8000/docs>) and n8n at <http://localhost:5678>.
+<http://localhost:8000/docs>), n8n at <http://localhost:5678>, and PostgreSQL
+on port `5433`. The API creates the tables and inserts initial seed records on
+its first startup.
 
 Run tests locally after installing the dependencies:
 
@@ -47,3 +49,10 @@ GET http://api:8000/customers/by-phone/+436601234567
 ```
 
 Workflow exports can be stored in `n8n/workflows/`.
+
+## pgAdmin
+
+Register a server with host `localhost`, port `5433`, database `fonio_fde`,
+username `fonio`, and password `fonio_dev_password`. The tables are under
+`Databases > fonio_fde > Schemas > public > Tables`; pgAdmin does not need to
+create them manually.

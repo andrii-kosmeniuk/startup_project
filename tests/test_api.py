@@ -1,7 +1,27 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
+from app.data.database import Base, get_db
+from app.data.seed import seed_database
 from app.main import app
 
+test_engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+Base.metadata.create_all(bind=test_engine)
+test_session = Session(test_engine, expire_on_commit=False)
+seed_database(test_session)
+
+
+def override_get_db():
+    yield test_session
+
+
+app.dependency_overrides[get_db] = override_get_db
 client = TestClient(app)
 
 

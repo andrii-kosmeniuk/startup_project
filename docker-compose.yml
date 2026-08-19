@@ -1,29 +1,72 @@
 services:
+
   api:
     build: .
     ports:
       - "8000:8000"
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fonio}:${POSTGRES_PASSWORD:-fonio_dev_password}@db:5432/${POSTGRES_DB:-fonio_fde}
+
+    depends_on:
+      db:
+        condition: service_healthy
+
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
       interval: 5s
       timeout: 3s
       retries: 10
 
+
+  db:
+    image: postgres:17
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fonio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fonio_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-fonio_fde}
+
+    ports:
+      - "5433:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fonio} -d ${POSTGRES_DB:-fonio_fde}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+
   n8n:
     image: n8nio/n8n:latest
+
     ports:
       - "5678:5678"
+
     environment:
       N8N_HOST: ${N8N_HOST:-localhost}
       N8N_PORT: 5678
       N8N_PROTOCOL: http
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Europe/Vienna}
+
     volumes:
       - n8n_data:/home/node/.n8n
       - ./n8n/workflows:/workflows
+
     depends_on:
       api:
         condition: service_healthy
 
+
 volumes:
+  postgres_data:
   n8n_data:
