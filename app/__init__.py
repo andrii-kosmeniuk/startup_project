@@ -1,0 +1,1 @@
+"""HausPilot integration API."""
