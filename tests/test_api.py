@@ -78,7 +78,54 @@ def test_create_valid_ticket() -> None:
     assert response.json()["customer_id"] == "customer-anna-mueller"
 
 
+def test_create_critical_ticket() -> None:
+    response = client.post(
+        "/tickets",
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "water_leak",
+            "description": "Water is pouring through the ceiling.",
+            "priority": "critical",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["priority"] == "critical"
+
+
 def test_get_property() -> None:
     response = client.get("/properties/property-neubaugasse-17")
     assert response.status_code == 200
     assert response.json()["address"] == "Neubaugasse 17, 1070 Wien"
+
+
+def test_get_property_manager() -> None:
+    response = client.get("/properties/property-neubaugasse-17/manager")
+    assert response.status_code == 200
+    assert response.json()["first_name"] == "Lukas"
+    assert response.json()["available"] is True
+
+
+def test_get_property_emergency_contact() -> None:
+    response = client.get("/properties/property-neubaugasse-17/emergency-contact")
+    assert response.status_code == 200
+    assert response.json()["id"] == "emergency-1"
+
+
+def test_create_call_outcome() -> None:
+    response = client.post(
+        "/call-outcomes",
+        json={
+            "conversation_id": "conv-123",
+            "customer_id": "customer-lukas-huber",
+            "intent": "maintenance",
+            "ticket_id": "ticket-1",
+            "transfer_attempted": True,
+            "transfer_success": False,
+            "follow_up_required": True,
+            "summary": "Tenant reported a leaking kitchen sink.",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["conversation_id"] == "conv-123"
+    assert response.json()["follow_up_required"] is True

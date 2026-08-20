@@ -1,11 +1,42 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.data.models import CustomerRecord, PropertyRecord, TicketRecord
+from app.data.models import (
+    CustomerRecord,
+    EmergencyContactRecord,
+    PropertyManagerRecord,
+    PropertyRecord,
+    TicketRecord,
+)
 
 
 def seed_database(session: Session) -> None:
+    reference_records = [
+        PropertyManagerRecord(
+            id="manager-1", first_name="Lukas", last_name="Berger",
+            phone="+4315550101", email="lukas.berger@hauspilot.example",
+            available=True,
+        ),
+        PropertyManagerRecord(
+            id="manager-2", first_name="Sophie", last_name="Wagner",
+            phone="+4315550102", email="sophie.wagner@hauspilot.example",
+            available=False,
+        ),
+        EmergencyContactRecord(
+            id="emergency-1", name="Wiener Notdienst",
+            phone="+4315550201", type="building_emergency", available=True,
+        ),
+        EmergencyContactRecord(
+            id="emergency-2", name="Haustechnik Bereitschaft",
+            phone="+4315550202", type="building_emergency", available=True,
+        ),
+    ]
+    for record in reference_records:
+        if session.get(type(record), record.id) is None:
+            session.add(record)
+
     if session.scalar(select(PropertyRecord.id).limit(1)) is not None:
+        session.commit()
         return
 
     session.add_all(
