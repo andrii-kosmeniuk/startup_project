@@ -35,6 +35,15 @@ pytest
 - `GET /properties/{property_id}`
 - `POST /tickets`
 
+All business endpoints require the shared API key:
+
+```http
+X-API-Key: <value of API_KEY from .env>
+```
+
+`/health`, `/docs`, `/redoc`, and `/openapi.json` remain public. In Swagger,
+select **Authorize** and enter the API key before calling protected endpoints.
+
 Phone lookup always returns a status (`not_found`, `unique`, or `ambiguous`), a
 match count, and a customer list.
 
@@ -47,6 +56,10 @@ Request node using:
 ```text
 GET http://api:8000/customers/by-phone/+436601234567
 ```
+
+Configure an n8n Header Auth credential with header name `X-API-Key` and the
+same `API_KEY` value used by the API container. Do not store the secret directly
+in workflow exports.
 
 Workflow exports can be stored in `n8n/workflows/`.
 

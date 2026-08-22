@@ -8,10 +8,12 @@ from app.tickets.router import router as tickets_router
 from app.calls.router import router as calls_router
 from app.data.database import Base, SessionLocal, engine
 from app.data.seed import seed_database
+from app.security.api_key import validate_api_key_configuration
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_api_key_configuration()
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as session:
         seed_database(session)

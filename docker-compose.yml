@@ -7,6 +7,7 @@ services:
 
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fonio}:${POSTGRES_PASSWORD:-fonio_dev_password}@db:5432/${POSTGRES_DB:-fonio_fde}
+      API_KEY: ${API_KEY:-fonio_dev_api_key}
 
     depends_on:
       db:

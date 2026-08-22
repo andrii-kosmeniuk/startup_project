@@ -6,8 +6,13 @@ from app.customers.phone import InvalidPhoneNumberError
 from app.customers.schemas import CustomerLookupResponse
 from app.tickets.schemas import Ticket
 from app.data.database import get_db
+from app.security.api_key import require_api_key
 
-router = APIRouter(prefix="/customers", tags=["customers"])
+router = APIRouter(
+    prefix="/customers",
+    tags=["customers"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("/by-phone/{phone}", response_model=CustomerLookupResponse)

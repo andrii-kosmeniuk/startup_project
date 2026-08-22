@@ -1,3 +1,5 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
@@ -7,6 +9,11 @@ from sqlalchemy.pool import StaticPool
 from app.data.database import Base, get_db
 from app.data.models import CallOutcomeRecord, TicketRecord
 from app.data.seed import seed_database
+from app.security.api_key import validate_api_key_configuration
+
+TEST_API_KEY = "test-api-key-123456789"
+os.environ["API_KEY"] = TEST_API_KEY
+
 from app.main import app
 
 test_engine = create_engine(
@@ -24,7 +31,8 @@ def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app)
+client = TestClient(app, headers={"X-API-Key": TEST_API_KEY})
+unauthenticated_client = TestClient(app)
 
 
 @pytest.fixture(autouse=True)
@@ -40,9 +48,146 @@ def reset_database():
 
 
 def test_health() -> None:
-    response = client.get("/health")
+    response = unauthenticated_client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/health", "/docs", "/redoc", "/openapi.json"],
+)
+def test_public_endpoints_do_not_require_api_key(path: str) -> None:
+    response = unauthenticated_client.get(path)
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        ("GET", "/customers/by-phone/+436601234567", None),
+        ("GET", "/customers/customer-lukas-huber/open-tickets", None),
+        ("GET", "/properties/property-neubaugasse-17", None),
+        ("GET", "/properties/property-neubaugasse-17/manager", None),
+        ("GET", "/properties/property-neubaugasse-17/emergency-contact", None),
+        (
+            "POST",
+            "/tickets",
+            {
+                "customer_id": "customer-anna-mueller",
+                "property_id": "property-neubaugasse-17",
+                "category": "heating",
+                "description": "Heating is not working.",
+                "priority": "high",
+            },
+        ),
+        (
+            "POST",
+            "/call-outcomes",
+            {
+                "conversation_id": "conv-auth-test",
+                "intent": "maintenance",
+                "summary": "Authentication test.",
+            },
+        ),
+    ],
+)
+def test_all_business_endpoints_require_api_key(
+    method: str, path: str, payload: dict[str, object] | None
+) -> None:
+    response = unauthenticated_client.request(method, path, json=payload)
+    assert response.status_code == 401
+    assert response.json() == {
+        "detail": {
+            "code": "UNAUTHORIZED",
+            "message": "Invalid or missing API key",
+            "retryable": False,
+        }
+    }
+    assert response.headers["www-authenticate"] == "ApiKey"
+
+
+def test_invalid_api_key_is_rejected() -> None:
+    response = unauthenticated_client.get(
+        "/customers/by-phone/+436601234567",
+        headers={"X-API-Key": "incorrect-api-key-value"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "UNAUTHORIZED"
+
+
+def test_unauthenticated_posts_create_no_side_effects() -> None:
+    tickets_before = test_session.scalar(
+        select(func.count()).select_from(TicketRecord)
+    )
+    outcomes_before = test_session.scalar(
+        select(func.count()).select_from(CallOutcomeRecord)
+    )
+
+    ticket_response = unauthenticated_client.post(
+        "/tickets",
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        },
+    )
+    outcome_response = unauthenticated_client.post(
+        "/call-outcomes",
+        json={
+            "conversation_id": "conv-unauthorized",
+            "intent": "maintenance",
+            "summary": "This must not be stored.",
+        },
+    )
+
+    assert ticket_response.status_code == 401
+    assert outcome_response.status_code == 401
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord))
+        == tickets_before
+    )
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord))
+        == outcomes_before
+    )
+
+
+def test_api_key_header_is_case_insensitive() -> None:
+    response = unauthenticated_client.get(
+        "/customers/by-phone/+436601234567",
+        headers={"x-api-key": TEST_API_KEY},
+    )
+    assert response.status_code == 200
+
+
+def test_openapi_documents_api_key_security_scheme() -> None:
+    document = unauthenticated_client.get("/openapi.json").json()
+    scheme = document["components"]["securitySchemes"]["ApiKeyAuth"]
+    assert scheme == {
+        "type": "apiKey",
+        "description": "Shared API key used by n8n to call FastAPI.",
+        "in": "header",
+        "name": "X-API-Key",
+    }
+    assert document["paths"]["/tickets"]["post"]["security"] == [
+        {"ApiKeyAuth": []}
+    ]
+    assert "security" not in document["paths"]["/health"]["get"]
+
+
+@pytest.mark.parametrize("configured_value", [None, "", "short-key", " " * 20])
+def test_invalid_api_key_configuration_fails_fast(
+    monkeypatch: pytest.MonkeyPatch, configured_value: str | None
+) -> None:
+    if configured_value is None:
+        monkeypatch.delenv("API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("API_KEY", configured_value)
+    with pytest.raises(RuntimeError, match="API_KEY must be configured"):
+        validate_api_key_configuration()
 
 
 def test_known_phone_returns_one_customer() -> None:

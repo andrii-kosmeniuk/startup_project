@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from app.calls import service
 from app.calls.schemas import CallOutcome, CallOutcomeCreate
 from app.data.database import get_db
+from app.security.api_key import require_api_key
 
-router = APIRouter(prefix="/call-outcomes", tags=["call outcomes"])
+router = APIRouter(
+    prefix="/call-outcomes",
+    tags=["call outcomes"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.post("", response_model=CallOutcome, status_code=status.HTTP_201_CREATED)

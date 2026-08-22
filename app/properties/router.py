@@ -4,8 +4,13 @@ from sqlalchemy.orm import Session
 from app.properties import service
 from app.properties.schemas import EmergencyContact, Property, PropertyManager
 from app.data.database import get_db
+from app.security.api_key import require_api_key
 
-router = APIRouter(prefix="/properties", tags=["properties"])
+router = APIRouter(
+    prefix="/properties",
+    tags=["properties"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("/{property_id}/emergency-contact", response_model=EmergencyContact)
