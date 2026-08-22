@@ -14,8 +14,14 @@ class InvalidCallOutcomeReferenceError(ValueError):
 def create_call_outcome(request: CallOutcomeCreate, session: Session) -> CallOutcome:
     if request.customer_id and session.get(CustomerRecord, request.customer_id) is None:
         raise InvalidCallOutcomeReferenceError("Customer not found")
-    if request.ticket_id and session.get(TicketRecord, request.ticket_id) is None:
-        raise InvalidCallOutcomeReferenceError("Ticket not found")
+    if request.ticket_id:
+        ticket = session.get(TicketRecord, request.ticket_id)
+        if ticket is None:
+            raise InvalidCallOutcomeReferenceError("Ticket not found")
+        if request.customer_id and ticket.customer_id != request.customer_id:
+            raise InvalidCallOutcomeReferenceError(
+                "Ticket does not belong to this customer"
+            )
 
     record = CallOutcomeRecord(
         id=f"call-outcome-{uuid4().hex}",

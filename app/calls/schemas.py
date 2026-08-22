@@ -4,13 +4,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CallOutcomeCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     conversation_id: str = Field(min_length=1, max_length=100)
-    customer_id: str | None = None
+    customer_id: str | None = Field(default=None, min_length=1, max_length=100)
     intent: str = Field(min_length=1, max_length=100)
-    ticket_id: str | None = None
-    transfer_attempted: bool = False
-    transfer_success: bool = False
-    follow_up_required: bool = False
+    ticket_id: str | None = Field(default=None, min_length=1, max_length=100)
+    transfer_attempted: bool = Field(default=False, strict=True)
+    transfer_success: bool = Field(default=False, strict=True)
+    follow_up_required: bool = Field(default=False, strict=True)
     summary: str = Field(min_length=1, max_length=5000)
 
     @model_validator(mode="after")
@@ -21,7 +23,7 @@ class CallOutcomeCreate(BaseModel):
 
 
 class CallOutcome(CallOutcomeCreate):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     id: str
     created_at: datetime

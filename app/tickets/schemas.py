@@ -17,15 +17,17 @@ class TicketStatus(str, Enum):
 
 
 class TicketCreate(BaseModel):
-    customer_id: str
-    property_id: str
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    customer_id: str = Field(min_length=1, max_length=100)
+    property_id: str = Field(min_length=1, max_length=100)
     category: str = Field(min_length=1, max_length=100)
     description: str = Field(min_length=1, max_length=2000)
     priority: TicketPriority
 
 
 class Ticket(TicketCreate):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
 
     id: str
     status: TicketStatus

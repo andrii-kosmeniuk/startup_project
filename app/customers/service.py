@@ -1,4 +1,5 @@
 from app.customers.schemas import Customer, CustomerLookupResponse, MatchStatus
+from app.customers.phone import normalize_phone
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,8 +8,9 @@ from app.tickets.schemas import Ticket, TicketStatus
 
 
 def find_by_phone(phone: str, session: Session) -> CustomerLookupResponse:
+    normalized_phone = normalize_phone(phone)
     records = session.scalars(
-        select(CustomerRecord).where(CustomerRecord.phone == phone)
+        select(CustomerRecord).where(CustomerRecord.phone == normalized_phone)
     ).all()
     matches = [Customer.model_validate(record) for record in records]
     if not matches:
