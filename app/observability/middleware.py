@@ -12,6 +12,7 @@ from app.observability.logging import (
     conversation_id_context,
     request_id_context,
 )
+from app.errors import error_response
 
 CONVERSATION_ID_HEADER = "X-Conversation-ID"
 REQUEST_ID_HEADER = "X-Request-ID"
@@ -28,14 +29,13 @@ def _conversation_id_error(conversation_id: str | None) -> JSONResponse | None:
         conversation_id and len(conversation_id) <= MAXIMUM_CONVERSATION_ID_LENGTH
     ):
         return None
-    return JSONResponse(
+    return error_response(
+        code="VALIDATION_ERROR",
+        message=(
+            "X-Conversation-ID must contain between 1 and "
+            f"{MAXIMUM_CONVERSATION_ID_LENGTH} characters"
+        ),
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": (
-                "X-Conversation-ID must contain between 1 and "
-                f"{MAXIMUM_CONVERSATION_ID_LENGTH} characters"
-            )
-        },
     )
 
 
@@ -95,6 +95,14 @@ class RequestObservabilityMiddleware(BaseHTTPMiddleware):
                     "request_failed",
                     extra={"event": "http_request_failed"},
                 )
-                raise
+                status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+                response = error_response(
+                    code="INTERNAL_ERROR",
+                    message="An unexpected error occurred",
+                    status_code=status_code,
+                    retryable=False,
+                )
+                _add_correlation_headers(response, request_id, conversation_id)
+                return response
             finally:
                 _log_request_completed(request, status_code, started_at)

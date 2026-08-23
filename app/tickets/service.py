@@ -8,17 +8,22 @@ from app.observability.logging import log_event
 
 
 class InvalidTicketReferenceError(ValueError):
-    pass
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def create_ticket(request: TicketCreate, session: Session) -> Ticket:
     customer = session.get(CustomerRecord, request.customer_id)
     if customer is None:
-        raise InvalidTicketReferenceError("Customer not found")
+        raise InvalidTicketReferenceError("CUSTOMER_NOT_FOUND", "Customer not found")
     if session.get(PropertyRecord, request.property_id) is None:
-        raise InvalidTicketReferenceError("Property not found")
+        raise InvalidTicketReferenceError("PROPERTY_NOT_FOUND", "Property not found")
     if customer.property_id != request.property_id:
-        raise InvalidTicketReferenceError("Customer does not belong to this property")
+        raise InvalidTicketReferenceError(
+            "CUSTOMER_PROPERTY_MISMATCH",
+            "Customer does not belong to this property",
+        )
 
     record = TicketRecord(
         id=f"ticket-{uuid4().hex}",

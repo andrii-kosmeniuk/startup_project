@@ -9,18 +9,23 @@ from app.observability.logging import log_event
 
 
 class InvalidCallOutcomeReferenceError(ValueError):
-    pass
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def create_call_outcome(request: CallOutcomeCreate, session: Session) -> CallOutcome:
     if request.customer_id and session.get(CustomerRecord, request.customer_id) is None:
-        raise InvalidCallOutcomeReferenceError("Customer not found")
+        raise InvalidCallOutcomeReferenceError(
+            "CUSTOMER_NOT_FOUND", "Customer not found"
+        )
     if request.ticket_id:
         ticket = session.get(TicketRecord, request.ticket_id)
         if ticket is None:
-            raise InvalidCallOutcomeReferenceError("Ticket not found")
+            raise InvalidCallOutcomeReferenceError("TICKET_NOT_FOUND", "Ticket not found")
         if request.customer_id and ticket.customer_id != request.customer_id:
             raise InvalidCallOutcomeReferenceError(
+                "TICKET_CUSTOMER_MISMATCH",
                 "Ticket does not belong to this customer"
             )
 

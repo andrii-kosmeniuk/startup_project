@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.tickets import service
 from app.tickets.schemas import Ticket, TicketCreate
 from app.data.database import get_db
 from app.security.api_key import require_api_key
+from app.errors import ApplicationError
 
 router = APIRouter(
     prefix="/tickets",
@@ -20,7 +21,8 @@ def create_ticket(
     try:
         return service.create_ticket(request, session)
     except service.InvalidTicketReferenceError as error:
-        raise HTTPException(
+        raise ApplicationError(
+            code=error.code,
+            message=str(error),
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(error),
         ) from error

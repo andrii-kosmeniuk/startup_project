@@ -7,6 +7,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -75,11 +76,153 @@ def test_health() -> None:
 
 @pytest.mark.parametrize(
     "path",
-    ["/health", "/docs", "/redoc", "/openapi.json"],
+    ["/health", "/ready", "/docs", "/redoc", "/openapi.json"],
 )
 def test_public_endpoints_do_not_require_api_key(path: str) -> None:
     response = unauthenticated_client.get(path)
     assert response.status_code == 200
+
+
+def test_ready_checks_database() -> None:
+    response = unauthenticated_client.get("/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "database": "ok"}
+
+
+def test_ready_returns_structured_503_when_database_is_unavailable(
+    captured_application_logs: io.StringIO,
+) -> None:
+    class UnavailableSession:
+        def execute(self, _statement: object) -> None:
+            raise OperationalError("SELECT 1", {}, Exception("database offline"))
+
+    def unavailable_database():
+        yield UnavailableSession()
+
+    app.dependency_overrides[get_db] = unavailable_database
+    try:
+        response = unauthenticated_client.get(
+            "/ready", headers={"X-Conversation-ID": "conv-ready-failure"}
+        )
+    finally:
+        app.dependency_overrides[get_db] = override_get_db
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "DATABASE_UNAVAILABLE",
+            "message": "Database is temporarily unavailable",
+            "retryable": True,
+            "conversation_id": "conv-ready-failure",
+        }
+    }
+    assert response.headers["x-conversation-id"] == "conv-ready-failure"
+    assert "x-request-id" in response.headers
+    database_log = next(
+        log
+        for log in parsed_logs(captured_application_logs)
+        if log["event"] == "database_unavailable"
+    )
+    assert database_log["conversation_id"] == "conv-ready-failure"
+    assert database_log["error_type"] == "OperationalError"
+
+
+def test_health_does_not_access_database() -> None:
+    def broken_database():
+        raise RuntimeError("Database dependency must not be called")
+        yield
+
+    app.dependency_overrides[get_db] = broken_database
+    try:
+        response = unauthenticated_client.get("/health")
+    finally:
+        app.dependency_overrides[get_db] = override_get_db
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_unexpected_error_returns_safe_correlated_response(
+    captured_application_logs: io.StringIO,
+) -> None:
+    def broken_database():
+        raise RuntimeError("sensitive internal failure")
+        yield
+
+    app.dependency_overrides[get_db] = broken_database
+    try:
+        response = client.get(
+            "/properties/property-neubaugasse-17",
+            headers={"X-Conversation-ID": "conv-internal-error"},
+        )
+    finally:
+        app.dependency_overrides[get_db] = override_get_db
+
+    assert response.status_code == 500
+    assert response.json() == {
+        "error": {
+            "code": "INTERNAL_ERROR",
+            "message": "An unexpected error occurred",
+            "retryable": False,
+            "conversation_id": "conv-internal-error",
+        }
+    }
+    assert "sensitive internal failure" not in response.text
+    assert response.headers["x-conversation-id"] == "conv-internal-error"
+    assert "x-request-id" in response.headers
+    events = [log["event"] for log in parsed_logs(captured_application_logs)]
+    assert "http_request_failed" in events
+    assert "http_request_completed" in events
+
+
+def test_unknown_route_uses_structured_error_envelope() -> None:
+    response = unauthenticated_client.get(
+        "/does-not-exist", headers={"X-Conversation-ID": "conv-not-found"}
+    )
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Not Found",
+            "retryable": False,
+            "conversation_id": "conv-not-found",
+        }
+    }
+
+
+def test_validation_error_has_sanitized_field_details() -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Conversation-ID": "conv-validation"},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "   ",
+            "description": "Heating is not working.",
+            "priority": "urgent",
+        },
+    )
+    assert response.status_code == 422
+    error = response.json()["error"]
+    assert error["code"] == "VALIDATION_ERROR"
+    assert error["message"] == "Request validation failed"
+    assert error["retryable"] is False
+    assert error["conversation_id"] == "conv-validation"
+    assert {"location", "message", "type"} == set(error["details"][0])
+    assert all("input" not in detail for detail in error["details"])
+
+
+def test_domain_error_exposes_stable_code() -> None:
+    response = client.get(
+        "/customers/unknown-customer/open-tickets",
+        headers={"X-Conversation-ID": "conv-domain-error"},
+    )
+    assert response.status_code == 404
+    assert response.json()["error"] == {
+        "code": "CUSTOMER_NOT_FOUND",
+        "message": "Customer not found",
+        "retryable": False,
+        "conversation_id": "conv-domain-error",
+    }
 
 
 def test_every_response_has_a_generated_request_id() -> None:
@@ -203,10 +346,11 @@ def test_all_business_endpoints_require_api_key(
     response = unauthenticated_client.request(method, path, json=payload)
     assert response.status_code == 401
     assert response.json() == {
-        "detail": {
+        "error": {
             "code": "UNAUTHORIZED",
             "message": "Invalid or missing API key",
             "retryable": False,
+            "conversation_id": None,
         }
     }
     assert response.headers["www-authenticate"] == "ApiKey"
@@ -218,7 +362,7 @@ def test_invalid_api_key_is_rejected() -> None:
         headers={"X-API-Key": "incorrect-api-key-value"},
     )
     assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "UNAUTHORIZED"
+    assert response.json()["error"]["code"] == "UNAUTHORIZED"
 
 
 def test_unauthenticated_posts_create_no_side_effects() -> None:
@@ -281,6 +425,7 @@ def test_openapi_documents_api_key_security_scheme() -> None:
         {"ApiKeyAuth": []}
     ]
     assert "security" not in document["paths"]["/health"]["get"]
+    assert "security" not in document["paths"]["/ready"]["get"]
 
 
 @pytest.mark.parametrize("configured_value", [None, "", "short-key", " " * 20])
@@ -463,7 +608,7 @@ def test_ticket_rejects_invalid_database_references(
         },
     )
     assert response.status_code == 422
-    assert response.json()["detail"] == expected_detail
+    assert response.json()["error"]["message"] == expected_detail
     assert test_session.scalar(select(func.count()).select_from(TicketRecord)) == before
 
 
@@ -546,7 +691,7 @@ def test_call_outcome_rejects_mismatched_conversation_header_without_side_effect
         },
     )
     assert response.status_code == 422
-    assert response.json()["detail"] == (
+    assert response.json()["error"]["message"] == (
         "X-Conversation-ID must match body conversation_id"
     )
     assert (
@@ -667,7 +812,7 @@ def test_call_outcome_rejects_invalid_references(
     before = test_session.scalar(select(func.count()).select_from(CallOutcomeRecord))
     response = client.post("/call-outcomes", json=payload)
     assert response.status_code == 422
-    assert response.json()["detail"] == expected_detail
+    assert response.json()["error"]["message"] == expected_detail
     assert (
         test_session.scalar(select(func.count()).select_from(CallOutcomeRecord))
         == before

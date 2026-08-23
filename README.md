@@ -30,6 +30,7 @@ pytest
 ## API
 
 - `GET /health`
+- `GET /ready`
 - `GET /customers/by-phone/{phone}`
 - `GET /customers/{customer_id}/open-tickets`
 - `GET /properties/{property_id}`
@@ -65,6 +66,11 @@ Send `X-Conversation-ID` with each n8n request to correlate API and workflow
 logs. The API returns the same header together with a generated `X-Request-ID`.
 Side-effect requests whose body contains `conversation_id` must use the same
 value in the header.
+
+`/health` reports whether the API process is alive. `/ready` additionally checks
+PostgreSQL and returns `503` when the database is unavailable. API failures use
+a consistent `{"error": {...}}` response containing a stable code, message,
+retryability flag, and conversation ID.
 
 Workflow exports can be stored in `n8n/workflows/`.
 

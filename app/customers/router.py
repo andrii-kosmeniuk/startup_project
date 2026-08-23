@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.customers import service
@@ -7,6 +7,7 @@ from app.customers.schemas import CustomerLookupResponse
 from app.tickets.schemas import Ticket
 from app.data.database import get_db
 from app.security.api_key import require_api_key
+from app.errors import ApplicationError
 
 router = APIRouter(
     prefix="/customers",
@@ -22,9 +23,10 @@ def find_customer_by_phone(
     try:
         return service.find_by_phone(phone, session)
     except InvalidPhoneNumberError as error:
-        raise HTTPException(
+        raise ApplicationError(
+            code="VALIDATION_ERROR",
+            message=str(error),
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=str(error),
         ) from error
 
 
@@ -33,8 +35,9 @@ def get_customer_open_tickets(
     customer_id: str, session: Session = Depends(get_db)
 ) -> list[Ticket]:
     if not service.customer_exists(customer_id, session):
-        raise HTTPException(
+        raise ApplicationError(
+            code="CUSTOMER_NOT_FOUND",
+            message="Customer not found",
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Customer not found",
         )
     return service.get_open_tickets(customer_id, session)

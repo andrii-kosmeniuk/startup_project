@@ -10,6 +10,8 @@ from app.data.database import Base, SessionLocal, engine
 from app.data.seed import seed_database
 from app.security.api_key import validate_api_key_configuration
 from app.observability.middleware import RequestObservabilityMiddleware
+from app.errors import register_exception_handlers
+from app.health.router import router as health_router
 
 
 @asynccontextmanager
@@ -27,13 +29,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.add_middleware(RequestObservabilityMiddleware)
+register_exception_handlers(app)
 
+app.include_router(health_router)
 app.include_router(customers_router)
 app.include_router(properties_router)
 app.include_router(tickets_router)
 app.include_router(calls_router)
-
-
-@app.get("/health", tags=["health"])
-def health() -> dict[str, str]:
-    return {"status": "ok"}
