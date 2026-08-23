@@ -61,6 +61,11 @@ Configure an n8n Header Auth credential with header name `X-API-Key` and the
 same `API_KEY` value used by the API container. Do not store the secret directly
 in workflow exports.
 
+Send `X-Conversation-ID` with each n8n request to correlate API and workflow
+logs. The API returns the same header together with a generated `X-Request-ID`.
+Side-effect requests whose body contains `conversation_id` must use the same
+value in the header.
+
 Workflow exports can be stored in `n8n/workflows/`.
 
 ## pgAdmin

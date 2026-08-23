@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.data.models import CustomerRecord, TicketRecord
 from app.tickets.schemas import Ticket, TicketStatus
+from app.observability.logging import log_event
 
 
 def find_by_phone(phone: str, session: Session) -> CustomerLookupResponse:
@@ -20,6 +21,12 @@ def find_by_phone(phone: str, session: Session) -> CustomerLookupResponse:
     else:
         status = MatchStatus.AMBIGUOUS
 
+    log_event(
+        "customer_lookup_completed",
+        match_status=status.value,
+        match_count=len(matches),
+    )
+
     return CustomerLookupResponse(status=status, count=len(matches), customers=matches)
 
 
@@ -34,4 +41,6 @@ def get_open_tickets(customer_id: str, session: Session) -> list[Ticket]:
             TicketRecord.status != TicketStatus.CLOSED.value,
         )
     ).all()
-    return [Ticket.model_validate(record) for record in records]
+    tickets = [Ticket.model_validate(record) for record in records]
+    log_event("open_ticket_lookup_completed", ticket_count=len(tickets))
+    return tickets

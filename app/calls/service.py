@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.calls.schemas import CallOutcome, CallOutcomeCreate
 from app.data.models import CallOutcomeRecord, CustomerRecord, TicketRecord
+from app.observability.logging import log_event
 
 
 class InvalidCallOutcomeReferenceError(ValueError):
@@ -31,4 +32,10 @@ def create_call_outcome(request: CallOutcomeCreate, session: Session) -> CallOut
     session.add(record)
     session.commit()
     session.refresh(record)
+    log_event(
+        "call_outcome_saved",
+        call_outcome_id=record.id,
+        intent=record.intent,
+        follow_up_required=record.follow_up_required,
+    )
     return CallOutcome.model_validate(record)

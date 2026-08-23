@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.data.models import CustomerRecord, PropertyRecord, TicketRecord
 from app.tickets.schemas import Ticket, TicketCreate, TicketStatus
+from app.observability.logging import log_event
 
 
 class InvalidTicketReferenceError(ValueError):
@@ -27,4 +28,5 @@ def create_ticket(request: TicketCreate, session: Session) -> Ticket:
     session.add(record)
     session.commit()
     session.refresh(record)
+    log_event("ticket_created", ticket_id=record.id, priority=record.priority)
     return Ticket.model_validate(record)

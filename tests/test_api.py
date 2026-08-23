@@ -1,4 +1,8 @@
+import io
+import json
+import logging
 import os
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +14,7 @@ from app.data.database import Base, get_db
 from app.data.models import CallOutcomeRecord, TicketRecord
 from app.data.seed import seed_database
 from app.security.api_key import validate_api_key_configuration
+from app.observability.logging import JsonFormatter, application_logger
 
 TEST_API_KEY = "test-api-key-123456789"
 os.environ["API_KEY"] = TEST_API_KEY
@@ -47,6 +52,21 @@ def reset_database():
     test_session.rollback()
 
 
+@pytest.fixture
+def captured_application_logs():
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(JsonFormatter())
+    application_logger.addHandler(handler)
+    yield stream
+    application_logger.removeHandler(handler)
+    handler.close()
+
+
+def parsed_logs(stream: io.StringIO) -> list[dict[str, object]]:
+    return [json.loads(line) for line in stream.getvalue().splitlines()]
+
+
 def test_health() -> None:
     response = unauthenticated_client.get("/health")
     assert response.status_code == 200
@@ -60,6 +80,91 @@ def test_health() -> None:
 def test_public_endpoints_do_not_require_api_key(path: str) -> None:
     response = unauthenticated_client.get(path)
     assert response.status_code == 200
+
+
+def test_every_response_has_a_generated_request_id() -> None:
+    first = unauthenticated_client.get("/health")
+    second = unauthenticated_client.get("/health")
+    request_id_pattern = re.compile(r"^req_[0-9a-f]{32}$")
+
+    assert request_id_pattern.fullmatch(first.headers["x-request-id"])
+    assert request_id_pattern.fullmatch(second.headers["x-request-id"])
+    assert first.headers["x-request-id"] != second.headers["x-request-id"]
+
+
+def test_conversation_id_is_propagated_and_logged(
+    captured_application_logs: io.StringIO,
+) -> None:
+    response = client.get(
+        "/customers/by-phone/+436601234567",
+        headers={"X-Conversation-ID": "conv-123"},
+    )
+    assert response.status_code == 200
+    assert response.headers["x-conversation-id"] == "conv-123"
+
+    logs = parsed_logs(captured_application_logs)
+    request_log = next(
+        log for log in logs if log["event"] == "http_request_completed"
+    )
+    business_log = next(
+        log for log in logs if log["event"] == "customer_lookup_completed"
+    )
+    assert request_log["conversation_id"] == "conv-123"
+    assert request_log["request_id"] == response.headers["x-request-id"]
+    assert request_log["method"] == "GET"
+    assert request_log["path"] == "/customers/by-phone/+436601234567"
+    assert request_log["status_code"] == 200
+    assert isinstance(request_log["duration_ms"], (int, float))
+    assert request_log["duration_ms"] >= 0
+    assert business_log["conversation_id"] == "conv-123"
+    assert business_log["request_id"] == response.headers["x-request-id"]
+    assert business_log["match_status"] == "unique"
+    assert business_log["match_count"] == 1
+
+
+def test_conversation_id_is_trimmed_before_propagation() -> None:
+    response = client.get(
+        "/properties/property-neubaugasse-17",
+        headers={"X-Conversation-ID": "  conv-trimmed  "},
+    )
+    assert response.status_code == 200
+    assert response.headers["x-conversation-id"] == "conv-trimmed"
+
+
+@pytest.mark.parametrize("conversation_id", ["", "x" * 101])
+def test_invalid_conversation_id_header_is_rejected(
+    conversation_id: str,
+    captured_application_logs: io.StringIO,
+) -> None:
+    response = client.get(
+        "/customers/by-phone/+436601234567",
+        headers={"X-Conversation-ID": conversation_id},
+    )
+    assert response.status_code == 422
+    assert "x-request-id" in response.headers
+    logs = parsed_logs(captured_application_logs)
+    request_log = next(
+        log for log in logs if log["event"] == "http_request_completed"
+    )
+    assert request_log["status_code"] == 422
+
+
+def test_unauthorized_request_is_correlated_and_timed(
+    captured_application_logs: io.StringIO,
+) -> None:
+    response = unauthenticated_client.get(
+        "/properties/property-neubaugasse-17",
+        headers={"X-Conversation-ID": "conv-unauthorized"},
+    )
+    assert response.status_code == 401
+    assert response.headers["x-conversation-id"] == "conv-unauthorized"
+    request_log = next(
+        log
+        for log in parsed_logs(captured_application_logs)
+        if log["event"] == "http_request_completed"
+    )
+    assert request_log["conversation_id"] == "conv-unauthorized"
+    assert request_log["status_code"] == 401
 
 
 @pytest.mark.parametrize(
@@ -411,6 +516,69 @@ def test_create_call_outcome() -> None:
     assert response.status_code == 201
     assert response.json()["conversation_id"] == "conv-123"
     assert response.json()["follow_up_required"] is True
+
+
+def test_call_outcome_accepts_matching_conversation_header() -> None:
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Conversation-ID": "conv-matching"},
+        json={
+            "conversation_id": "conv-matching",
+            "intent": "maintenance",
+            "summary": "Caller reported a maintenance issue.",
+        },
+    )
+    assert response.status_code == 201
+    assert response.headers["x-conversation-id"] == "conv-matching"
+
+
+def test_call_outcome_rejects_mismatched_conversation_header_without_side_effect() -> None:
+    before = test_session.scalar(
+        select(func.count()).select_from(CallOutcomeRecord)
+    )
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Conversation-ID": "conv-header"},
+        json={
+            "conversation_id": "conv-body",
+            "intent": "maintenance",
+            "summary": "Caller reported a maintenance issue.",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "X-Conversation-ID must match body conversation_id"
+    )
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord))
+        == before
+    )
+
+
+def test_side_effect_logs_include_business_result_and_correlation(
+    captured_application_logs: io.StringIO,
+) -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Conversation-ID": "conv-ticket-log"},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "water_leak",
+            "description": "Water is entering the apartment.",
+            "priority": "critical",
+        },
+    )
+    assert response.status_code == 201
+    ticket_log = next(
+        log
+        for log in parsed_logs(captured_application_logs)
+        if log["event"] == "ticket_created"
+    )
+    assert ticket_log["conversation_id"] == "conv-ticket-log"
+    assert ticket_log["request_id"] == response.headers["x-request-id"]
+    assert ticket_log["ticket_id"] == response.json()["id"]
+    assert ticket_log["priority"] == "critical"
 
 
 @pytest.mark.parametrize("field", ["conversation_id", "intent", "summary"])
