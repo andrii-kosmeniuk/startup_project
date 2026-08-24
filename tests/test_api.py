@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,12 +13,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.data.database import Base, get_db
-from app.data.models import CallOutcomeRecord, TicketRecord
+from app.data.models import CallOutcomeRecord, ProcessedEventRecord, TicketRecord
 from app.data.seed import seed_database
 from app.security.api_key import validate_api_key_configuration
 from app.observability.logging import JsonFormatter, application_logger
+from app.idempotency import service as idempotency_service
 
 TEST_API_KEY = "test-api-key-123456789"
+TEST_EVENT_ID = "event-test-default"
 os.environ["API_KEY"] = TEST_API_KEY
 
 from app.main import app
@@ -37,7 +40,13 @@ def override_get_db():
 
 
 app.dependency_overrides[get_db] = override_get_db
-client = TestClient(app, headers={"X-API-Key": TEST_API_KEY})
+client = TestClient(
+    app,
+    headers={"X-API-Key": TEST_API_KEY, "X-Event-ID": TEST_EVENT_ID},
+)
+authenticated_client_without_event = TestClient(
+    app, headers={"X-API-Key": TEST_API_KEY}
+)
 unauthenticated_client = TestClient(app)
 
 
@@ -404,6 +413,49 @@ def test_unauthenticated_posts_create_no_side_effects() -> None:
     )
 
 
+@pytest.mark.parametrize("path", ["/tickets", "/call-outcomes"])
+def test_side_effect_endpoints_require_event_id(path: str) -> None:
+    payload = (
+        {
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        }
+        if path == "/tickets"
+        else {
+            "conversation_id": "conv-event-required",
+            "intent": "maintenance",
+            "summary": "Caller requested help.",
+        }
+    )
+    response = authenticated_client_without_event.post(path, json=payload)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert response.json()["error"]["details"][0]["location"] == [
+        "header",
+        "X-Event-ID",
+    ]
+
+
+@pytest.mark.parametrize("event_id", ["   ", "x" * 101])
+def test_event_id_rejects_blank_or_oversized_values(event_id: str) -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": event_id},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "VALIDATION_ERROR"
+
+
 def test_api_key_header_is_case_insensitive() -> None:
     response = unauthenticated_client.get(
         "/customers/by-phone/+436601234567",
@@ -531,6 +583,197 @@ def test_create_critical_ticket() -> None:
     assert response.json()["priority"] == "critical"
 
 
+def test_duplicate_ticket_event_replays_original_result(
+    captured_application_logs: io.StringIO,
+) -> None:
+    payload = {
+        "customer_id": "customer-anna-mueller",
+        "property_id": "property-neubaugasse-17",
+        "category": "heating",
+        "description": "Heating stopped during the night.",
+        "priority": "high",
+    }
+    headers = {
+        "X-Event-ID": "event-ticket-duplicate",
+        "X-Conversation-ID": "conv-ticket-duplicate",
+    }
+    tickets_before = test_session.scalar(
+        select(func.count()).select_from(TicketRecord)
+    )
+
+    first = client.post("/tickets", headers=headers, json=payload)
+    second = client.post("/tickets", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json() == second.json()
+    assert "x-idempotent-replay" not in first.headers
+    assert second.headers["x-idempotent-replay"] == "true"
+    assert second.headers["x-event-id"] == "event-ticket-duplicate"
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord))
+        == tickets_before + 1
+    )
+    event = test_session.get(ProcessedEventRecord, "event-ticket-duplicate")
+    assert event is not None
+    assert event.operation == "create_ticket"
+    assert event.status == "completed"
+    assert event.response_status == 201
+    assert event.result_reference == first.json()["id"]
+    replay_log = next(
+        log
+        for log in parsed_logs(captured_application_logs)
+        if log["event"] == "duplicate_event_replayed"
+    )
+    assert replay_log["event_id"] == "event-ticket-duplicate"
+    assert replay_log["conversation_id"] == "conv-ticket-duplicate"
+    assert sum(
+        log["event"] == "ticket_created"
+        for log in parsed_logs(captured_application_logs)
+    ) == 1
+
+
+def test_event_id_reuse_with_changed_payload_is_rejected() -> None:
+    headers = {"X-Event-ID": "event-payload-mismatch"}
+    payload = {
+        "customer_id": "customer-anna-mueller",
+        "property_id": "property-neubaugasse-17",
+        "category": "heating",
+        "description": "Heating is not working.",
+        "priority": "high",
+    }
+    first = client.post("/tickets", headers=headers, json=payload)
+    changed_payload = {**payload, "description": "A different problem."}
+    second = client.post("/tickets", headers=headers, json=changed_payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["error"] == {
+        "code": "IDEMPOTENCY_KEY_REUSED",
+        "message": "X-Event-ID was already used for a different request",
+        "retryable": False,
+        "conversation_id": None,
+    }
+    matching_tickets = test_session.scalars(
+        select(TicketRecord).where(
+            TicketRecord.id == first.json()["id"]
+        )
+    ).all()
+    assert len(matching_tickets) == 1
+
+
+def test_event_id_reuse_across_operations_is_rejected() -> None:
+    event_id = "event-cross-operation"
+    ticket_response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": event_id},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        },
+    )
+    outcome_response = client.post(
+        "/call-outcomes",
+        headers={"X-Event-ID": event_id},
+        json={
+            "conversation_id": "conv-cross-operation",
+            "intent": "maintenance",
+            "summary": "Caller reported a heating problem.",
+        },
+    )
+    assert ticket_response.status_code == 201
+    assert outcome_response.status_code == 409
+    assert outcome_response.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord)) == 0
+    )
+
+
+def test_event_still_processing_returns_retryable_conflict() -> None:
+    payload = {
+        "customer_id": "customer-anna-mueller",
+        "property_id": "property-neubaugasse-17",
+        "category": "heating",
+        "description": "Heating is not working.",
+        "priority": "high",
+    }
+    test_session.add(
+        ProcessedEventRecord(
+            event_id="event-processing",
+            operation="create_ticket",
+            request_hash=idempotency_service.request_hash(payload),
+            status="processing",
+            response_status=None,
+            response_body=None,
+            result_reference=None,
+            processed_at=datetime.now(timezone.utc),
+        )
+    )
+    test_session.commit()
+
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-processing"},
+        json=payload,
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "EVENT_PROCESSING"
+    assert response.json()["error"]["retryable"] is True
+
+
+def test_failed_ticket_transaction_rolls_back_event_and_side_effect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tickets_before = test_session.scalar(
+        select(func.count()).select_from(TicketRecord)
+    )
+
+    def fail_completion(**_kwargs: object) -> None:
+        raise RuntimeError("simulated completion failure")
+
+    monkeypatch.setattr(idempotency_service, "complete_event", fail_completion)
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-rollback"},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        },
+    )
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+    assert test_session.get(ProcessedEventRecord, "event-rollback") is None
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord))
+        == tickets_before
+    )
+
+    monkeypatch.undo()
+    retry = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-rollback"},
+        json={
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "Heating is not working.",
+            "priority": "high",
+        },
+    )
+    assert retry.status_code == 201
+    assert test_session.get(ProcessedEventRecord, "event-rollback") is not None
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord))
+        == tickets_before + 1
+    )
+
+
 @pytest.mark.parametrize("field", ["customer_id", "property_id", "category", "description"])
 def test_ticket_rejects_blank_required_strings(field: str) -> None:
     payload = {
@@ -610,6 +853,10 @@ def test_ticket_rejects_invalid_database_references(
     assert response.status_code == 422
     assert response.json()["error"]["message"] == expected_detail
     assert test_session.scalar(select(func.count()).select_from(TicketRecord)) == before
+    assert (
+        test_session.scalar(select(func.count()).select_from(ProcessedEventRecord))
+        == 0
+    )
 
 
 def test_get_property() -> None:
@@ -661,6 +908,38 @@ def test_create_call_outcome() -> None:
     assert response.status_code == 201
     assert response.json()["conversation_id"] == "conv-123"
     assert response.json()["follow_up_required"] is True
+
+
+def test_duplicate_call_outcome_event_replays_original_result() -> None:
+    payload = {
+        "conversation_id": "conv-outcome-duplicate",
+        "customer_id": "customer-lukas-huber",
+        "intent": "maintenance",
+        "ticket_id": "ticket-1",
+        "transfer_attempted": False,
+        "transfer_success": False,
+        "follow_up_required": True,
+        "summary": "Tenant reported a leaking kitchen sink.",
+    }
+    headers = {
+        "X-Event-ID": "event-outcome-duplicate",
+        "X-Conversation-ID": "conv-outcome-duplicate",
+    }
+    first = client.post("/call-outcomes", headers=headers, json=payload)
+    second = client.post("/call-outcomes", headers=headers, json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert first.json() == second.json()
+    assert second.headers["x-idempotent-replay"] == "true"
+    assert second.headers["x-event-id"] == "event-outcome-duplicate"
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord)) == 1
+    )
+    event = test_session.get(ProcessedEventRecord, "event-outcome-duplicate")
+    assert event is not None
+    assert event.operation == "create_call_outcome"
+    assert event.result_reference == first.json()["id"]
 
 
 def test_call_outcome_accepts_matching_conversation_header() -> None:
@@ -816,6 +1095,10 @@ def test_call_outcome_rejects_invalid_references(
     assert (
         test_session.scalar(select(func.count()).select_from(CallOutcomeRecord))
         == before
+    )
+    assert (
+        test_session.scalar(select(func.count()).select_from(ProcessedEventRecord))
+        == 0
     )
 
 

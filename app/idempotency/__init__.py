@@ -1,0 +1,1 @@
+"""Idempotent side-effect processing."""

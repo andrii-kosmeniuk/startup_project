@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.data.database import Base
@@ -83,3 +83,18 @@ class CallOutcomeRecord(Base):
     follow_up_required: Mapped[bool] = mapped_column(Boolean, nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ProcessedEventRecord(Base):
+    __tablename__ = "processed_events"
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    operation: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    result_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

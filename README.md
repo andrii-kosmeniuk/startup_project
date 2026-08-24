@@ -67,6 +67,11 @@ logs. The API returns the same header together with a generated `X-Request-ID`.
 Side-effect requests whose body contains `conversation_id` must use the same
 value in the header.
 
+`POST /tickets` and `POST /call-outcomes` also require a stable `X-Event-ID`.
+n8n must reuse that value when retrying the same logical event. Duplicate
+delivery returns the original result with `X-Idempotent-Replay: true`; reusing
+an event ID for different data returns `409 IDEMPOTENCY_KEY_REUSED`.
+
 `/health` reports whether the API process is alive. `/ready` additionally checks
 PostgreSQL and returns `503` when the database is unavailable. API failures use
 a consistent `{"error": {...}}` response containing a stable code, message,
