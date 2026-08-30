@@ -583,6 +583,119 @@ def test_create_critical_ticket() -> None:
     assert response.json()["priority"] == "critical"
 
 
+def test_existing_open_ticket_is_returned_instead_of_creating_duplicate(
+    captured_application_logs: io.StringIO,
+) -> None:
+    tickets_before = test_session.scalar(
+        select(func.count()).select_from(TicketRecord)
+    )
+    response = client.post(
+        "/tickets",
+        headers={
+            "X-Event-ID": "event-existing-ticket",
+            "X-Conversation-ID": "conv-existing-ticket",
+        },
+        json={
+            "customer_id": "customer-lukas-huber",
+            "property_id": "property-landstrasser-42",
+            "category": "plumbing",
+            "description": "The kitchen sink is still leaking.",
+            "priority": "high",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == "ticket-1"
+    assert response.json()["priority"] == "high"
+    assert response.headers["x-existing-ticket"] == "true"
+    assert "x-idempotent-replay" not in response.headers
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord))
+        == tickets_before
+    )
+    event = test_session.get(ProcessedEventRecord, "event-existing-ticket")
+    assert event is not None
+    assert event.response_status == 200
+    assert event.result_reference == "ticket-1"
+    events = [log["event"] for log in parsed_logs(captured_application_logs)]
+    assert "existing_ticket_priority_escalated" in events
+    assert "existing_ticket_found" in events
+
+
+def test_existing_ticket_result_is_idempotently_replayed() -> None:
+    payload = {
+        "customer_id": "customer-lukas-huber",
+        "property_id": "property-landstrasser-42",
+        "category": "plumbing",
+        "description": "The kitchen sink is still leaking.",
+        "priority": "medium",
+    }
+    headers = {"X-Event-ID": "event-existing-replay"}
+    first = client.post("/tickets", headers=headers, json=payload)
+    second = client.post("/tickets", headers=headers, json=payload)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert first.headers["x-existing-ticket"] == "true"
+    assert second.headers["x-existing-ticket"] == "true"
+    assert second.headers["x-idempotent-replay"] == "true"
+
+
+def test_different_event_ids_still_return_one_existing_ticket() -> None:
+    payload = {
+        "customer_id": "customer-lukas-huber",
+        "property_id": "property-landstrasser-42",
+        "category": "plumbing",
+        "description": "The kitchen sink is still leaking.",
+        "priority": "medium",
+    }
+    first = client.post(
+        "/tickets", headers={"X-Event-ID": "event-report-one"}, json=payload
+    )
+    second = client.post(
+        "/tickets", headers={"X-Event-ID": "event-report-two"}, json=payload
+    )
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["id"] == second.json()["id"] == "ticket-1"
+    assert (
+        test_session.scalar(select(func.count()).select_from(TicketRecord)) == 2
+    )
+
+
+def test_closed_ticket_does_not_prevent_new_ticket_creation() -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-after-closed-ticket"},
+        json={
+            "customer_id": "customer-lukas-huber",
+            "property_id": "property-landstrasser-42",
+            "category": "heating",
+            "description": "The heating stopped again.",
+            "priority": "high",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["id"] != "ticket-2"
+    assert response.json()["status"] == "open"
+    assert "x-existing-ticket" not in response.headers
+
+
+def test_existing_ticket_matching_is_scoped_by_category() -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-different-category"},
+        json={
+            "customer_id": "customer-lukas-huber",
+            "property_id": "property-landstrasser-42",
+            "category": "electrical",
+            "description": "The hallway light is out.",
+            "priority": "medium",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["category"] == "electrical"
+
+
 def test_duplicate_ticket_event_replays_original_result(
     captured_application_logs: io.StringIO,
 ) -> None:
@@ -891,6 +1004,34 @@ def test_get_property_emergency_contact() -> None:
     assert response.json()["id"] == "emergency-1"
 
 
+def test_unavailable_property_manager_returns_retryable_503() -> None:
+    response = client.get(
+        "/properties/property-landstrasser-42/manager",
+        headers={"X-Conversation-ID": "conv-manager-unavailable"},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == {
+        "code": "MANAGER_UNAVAILABLE",
+        "message": "Property manager is currently unavailable",
+        "retryable": True,
+        "conversation_id": "conv-manager-unavailable",
+    }
+
+
+def test_unavailable_emergency_contact_returns_retryable_503() -> None:
+    response = client.get(
+        "/properties/property-landstrasser-42/emergency-contact",
+        headers={"X-Conversation-ID": "conv-contact-unavailable"},
+    )
+    assert response.status_code == 503
+    assert response.json()["error"] == {
+        "code": "EMERGENCY_CONTACT_UNAVAILABLE",
+        "message": "Emergency contact is currently unavailable",
+        "retryable": True,
+        "conversation_id": "conv-contact-unavailable",
+    }
+
+
 def test_create_call_outcome() -> None:
     response = client.post(
         "/call-outcomes",
@@ -940,6 +1081,137 @@ def test_duplicate_call_outcome_event_replays_original_result() -> None:
     assert event is not None
     assert event.operation == "create_call_outcome"
     assert event.result_reference == first.json()["id"]
+
+
+def add_critical_ticket(ticket_id: str = "ticket-critical-test") -> TicketRecord:
+    ticket = TicketRecord(
+        id=ticket_id,
+        customer_id="customer-anna-mueller",
+        property_id="property-neubaugasse-17",
+        category="water_leak",
+        description="Water is pouring through the ceiling.",
+        priority="critical",
+        status="open",
+    )
+    test_session.add(ticket)
+    test_session.commit()
+    return ticket
+
+
+def test_unresolved_emergency_with_critical_ticket_and_followup_is_saved() -> None:
+    ticket = add_critical_ticket()
+    response = client.post(
+        "/call-outcomes",
+        headers={
+            "X-Event-ID": "event-emergency-fallback",
+            "X-Conversation-ID": "conv-emergency-fallback",
+        },
+        json={
+            "conversation_id": "conv-emergency-fallback",
+            "customer_id": "customer-anna-mueller",
+            "intent": "emergency",
+            "ticket_id": ticket.id,
+            "transfer_attempted": True,
+            "transfer_success": False,
+            "follow_up_required": True,
+            "summary": "Transfer failed; critical follow-up is required.",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["ticket_id"] == ticket.id
+    assert response.json()["transfer_success"] is False
+    assert response.json()["follow_up_required"] is True
+
+
+def test_unavailable_contact_fallback_can_be_saved_without_transfer_attempt() -> None:
+    ticket = add_critical_ticket()
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Event-ID": "event-contact-fallback"},
+        json={
+            "conversation_id": "conv-contact-fallback",
+            "customer_id": "customer-anna-mueller",
+            "intent": "emergency",
+            "ticket_id": ticket.id,
+            "transfer_attempted": False,
+            "transfer_success": False,
+            "follow_up_required": True,
+            "summary": "Emergency contact unavailable; manager follow-up required.",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["transfer_attempted"] is False
+    assert response.json()["follow_up_required"] is True
+
+
+def test_unresolved_emergency_requires_followup() -> None:
+    ticket = add_critical_ticket()
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Event-ID": "event-missing-followup"},
+        json={
+            "conversation_id": "conv-missing-followup",
+            "customer_id": "customer-anna-mueller",
+            "intent": "emergency",
+            "ticket_id": ticket.id,
+            "transfer_attempted": True,
+            "transfer_success": False,
+            "follow_up_required": False,
+            "summary": "Transfer failed.",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "EMERGENCY_FOLLOW_UP_REQUIRED"
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord)) == 0
+    )
+    assert test_session.get(ProcessedEventRecord, "event-missing-followup") is None
+
+
+@pytest.mark.parametrize("ticket_id", [None, "ticket-1"])
+def test_unresolved_emergency_requires_critical_ticket(
+    ticket_id: str | None,
+) -> None:
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Event-ID": f"event-noncritical-{ticket_id or 'none'}"},
+        json={
+            "conversation_id": "conv-critical-required",
+            "customer_id": (
+                "customer-lukas-huber" if ticket_id else "customer-anna-mueller"
+            ),
+            "intent": "emergency",
+            "ticket_id": ticket_id,
+            "transfer_attempted": True,
+            "transfer_success": False,
+            "follow_up_required": True,
+            "summary": "Emergency transfer failed.",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "CRITICAL_TICKET_REQUIRED"
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord)) == 0
+    )
+
+
+def test_successful_emergency_transfer_does_not_require_fallback_ticket() -> None:
+    response = client.post(
+        "/call-outcomes",
+        headers={"X-Event-ID": "event-successful-emergency-transfer"},
+        json={
+            "conversation_id": "conv-successful-emergency-transfer",
+            "customer_id": "customer-anna-mueller",
+            "intent": "emergency",
+            "transfer_attempted": True,
+            "transfer_success": True,
+            "follow_up_required": False,
+            "summary": "Caller was transferred to the emergency contact.",
+        },
+    )
+    assert response.status_code == 201
+    assert response.json()["transfer_success"] is True
+    assert response.json()["ticket_id"] is None
 
 
 def test_call_outcome_accepts_matching_conversation_header() -> None:

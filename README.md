@@ -78,6 +78,14 @@ and at most three attempts. It retries only network errors, timeouts, and HTTP
 never retried. This client is ready to be wired into the explicit legacy-system
 operations introduced by the failure-handling phase.
 
+Ticket creation checks for an existing open ticket with the same customer,
+property, and category. A match is returned with `X-Existing-Ticket: true`
+instead of creating a duplicate; a higher submitted priority safely escalates
+the existing ticket. PostgreSQL advisory transaction locks serialize concurrent
+requests for the same issue. Unavailable managers and emergency contacts return
+retryable `503` errors. An unresolved emergency call outcome is accepted only
+when it references a critical ticket and has `follow_up_required=true`.
+
 `/health` reports whether the API process is alive. `/ready` additionally checks
 PostgreSQL and returns `503` when the database is unavailable. API failures use
 a consistent `{"error": {...}}` response containing a stable code, message,

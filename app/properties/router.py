@@ -31,6 +31,13 @@ def get_property_emergency_contact(
             message="Emergency contact not found",
             status_code=status.HTTP_404_NOT_FOUND,
         )
+    if not contact.available:
+        raise ApplicationError(
+            code="EMERGENCY_CONTACT_UNAVAILABLE",
+            message="Emergency contact is currently unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            retryable=True,
+        )
     return contact
 
 
@@ -50,6 +57,13 @@ def get_property_manager(
             code="PROPERTY_MANAGER_NOT_FOUND",
             message="Property manager not found",
             status_code=status.HTTP_404_NOT_FOUND,
+        )
+    if not manager.available:
+        raise ApplicationError(
+            code="MANAGER_UNAVAILABLE",
+            message="Property manager is currently unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            retryable=True,
         )
     return manager
 

@@ -7,6 +7,7 @@ from app.calls.schemas import CallOutcome, CallOutcomeCreate
 from app.data.models import CallOutcomeRecord, CustomerRecord, TicketRecord
 from app.observability.logging import log_event
 from app.idempotency import service as idempotency
+from app.tickets.schemas import TicketPriority
 
 
 class InvalidCallOutcomeReferenceError(ValueError):
@@ -36,6 +37,7 @@ def create_call_outcome(
             raise InvalidCallOutcomeReferenceError(
                 "CUSTOMER_NOT_FOUND", "Customer not found"
             )
+        ticket = None
         if request.ticket_id:
             ticket = session.get(TicketRecord, request.ticket_id)
             if ticket is None:
@@ -46,6 +48,18 @@ def create_call_outcome(
                 raise InvalidCallOutcomeReferenceError(
                     "TICKET_CUSTOMER_MISMATCH",
                     "Ticket does not belong to this customer",
+                )
+
+        if request.intent == "emergency" and not request.transfer_success:
+            if not request.follow_up_required:
+                raise InvalidCallOutcomeReferenceError(
+                    "EMERGENCY_FOLLOW_UP_REQUIRED",
+                    "Unresolved emergency calls require follow-up",
+                )
+            if ticket is None or ticket.priority != TicketPriority.CRITICAL.value:
+                raise InvalidCallOutcomeReferenceError(
+                    "CRITICAL_TICKET_REQUIRED",
+                    "Unresolved emergency calls require a critical ticket",
                 )
 
         record = CallOutcomeRecord(

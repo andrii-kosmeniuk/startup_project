@@ -23,11 +23,14 @@ def create_ticket(
     event_id: str = Depends(require_event_id),
 ) -> Ticket:
     try:
-        ticket, replayed = service.create_ticket(request, event_id, session)
-        if replayed:
+        result = service.create_ticket(request, event_id, session)
+        response.status_code = result.response_status
+        if result.replayed:
             response.headers["X-Idempotent-Replay"] = "true"
+        if result.response_status == status.HTTP_200_OK:
+            response.headers["X-Existing-Ticket"] = "true"
         response.headers["X-Event-ID"] = event_id
-        return ticket
+        return result.ticket
     except service.InvalidTicketReferenceError as error:
         raise ApplicationError(
             code=error.code,

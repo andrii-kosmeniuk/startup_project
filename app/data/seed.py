@@ -28,7 +28,7 @@ def seed_database(session: Session) -> None:
         ),
         EmergencyContactRecord(
             id="emergency-2", name="Haustechnik Bereitschaft",
-            phone="+4315550202", type="building_emergency", available=True,
+            phone="+4315550202", type="building_emergency", available=False,
         ),
     ]
     for record in reference_records:
