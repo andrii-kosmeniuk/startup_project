@@ -7,6 +7,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 
 from app.observability.logging import conversation_id_context, log_event
+from app.integrations.errors import (
+    CustomerSystemResponseError,
+    CustomerSystemTimeoutError,
+    CustomerSystemUnavailableError,
+)
 
 
 class ApplicationError(Exception):
@@ -115,8 +120,53 @@ async def database_error_handler(_: Request, error: SQLAlchemyError) -> JSONResp
     )
 
 
+async def customer_system_timeout_handler(
+    _: Request, error: CustomerSystemTimeoutError
+) -> JSONResponse:
+    return error_response(
+        code="CUSTOMER_SYSTEM_TIMEOUT",
+        message="Customer system request timed out",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        retryable=True,
+        details={"attempts": error.attempts},
+    )
+
+
+async def customer_system_unavailable_handler(
+    _: Request, error: CustomerSystemUnavailableError
+) -> JSONResponse:
+    return error_response(
+        code="CUSTOMER_SYSTEM_UNAVAILABLE",
+        message="Customer system is temporarily unavailable",
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        retryable=True,
+        details={"attempts": error.attempts},
+    )
+
+
+async def customer_system_response_handler(
+    _: Request, error: CustomerSystemResponseError
+) -> JSONResponse:
+    return error_response(
+        code="CUSTOMER_SYSTEM_REQUEST_FAILED",
+        message="Customer system rejected the request",
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        retryable=False,
+        details={"upstream_status": error.upstream_status},
+    )
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(ApplicationError, application_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
     app.add_exception_handler(SQLAlchemyError, database_error_handler)
+    app.add_exception_handler(
+        CustomerSystemTimeoutError, customer_system_timeout_handler
+    )
+    app.add_exception_handler(
+        CustomerSystemUnavailableError, customer_system_unavailable_handler
+    )
+    app.add_exception_handler(
+        CustomerSystemResponseError, customer_system_response_handler
+    )

@@ -72,6 +72,12 @@ n8n must reuse that value when retrying the same logical event. Duplicate
 delivery returns the original result with `X-Idempotent-Replay: true`; reusing
 an event ID for different data returns `409 IDEMPOTENCY_KEY_REUSED`.
 
+The reusable customer-system HTTP client applies explicit connect/read timeouts
+and at most three attempts. It retries only network errors, timeouts, and HTTP
+`502`, `503`, or `504`; permanent `4xx` responses and other status errors are
+never retried. This client is ready to be wired into the explicit legacy-system
+operations introduced by the failure-handling phase.
+
 `/health` reports whether the API process is alive. `/ready` additionally checks
 PostgreSQL and returns `503` when the database is unavailable. API failures use
 a consistent `{"error": {...}}` response containing a stable code, message,
