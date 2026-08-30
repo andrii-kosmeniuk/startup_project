@@ -329,7 +329,7 @@ def test_unauthorized_request_is_correlated_and_timed(
     ("method", "path", "payload"),
     [
         ("GET", "/customers/by-phone/+436601234567", None),
-        ("GET", "/customers/customer-lukas-huber/open-tickets", None),
+        ("GET", "/customers/customer-anna-mueller/open-tickets", None),
         ("GET", "/properties/property-neubaugasse-17", None),
         ("GET", "/properties/property-neubaugasse-17/manager", None),
         ("GET", "/properties/property-neubaugasse-17/emergency-contact", None),
@@ -541,16 +541,16 @@ def test_unknown_phone_returns_zero_customers() -> None:
 
 
 def test_shared_phone_returns_multiple_customers() -> None:
-    response = client.get("/customers/by-phone/+436601111111")
+    response = client.get("/customers/by-phone/+436609999999")
     assert response.status_code == 200
     assert response.json()["status"] == "ambiguous"
     assert response.json()["count"] == 2
 
 
 def test_get_open_tickets_excludes_closed_tickets() -> None:
-    response = client.get("/customers/customer-lukas-huber/open-tickets")
+    response = client.get("/customers/customer-anna-mueller/open-tickets")
     assert response.status_code == 200
-    assert [ticket["id"] for ticket in response.json()] == ["ticket-1"]
+    assert [ticket["id"] for ticket in response.json()] == ["ticket-932"]
 
 
 def test_open_ticket_lookup_rejects_unknown_customer() -> None:
@@ -602,15 +602,15 @@ def test_existing_open_ticket_is_returned_instead_of_creating_duplicate(
             "X-Conversation-ID": "conv-existing-ticket",
         },
         json={
-            "customer_id": "customer-lukas-huber",
-            "property_id": "property-landstrasser-42",
-            "category": "plumbing",
-            "description": "The kitchen sink is still leaking.",
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "The heating is still not working.",
             "priority": "high",
         },
     )
     assert response.status_code == 200
-    assert response.json()["id"] == "ticket-1"
+    assert response.json()["id"] == "ticket-932"
     assert response.json()["priority"] == "high"
     assert response.headers["x-existing-ticket"] == "true"
     assert "x-idempotent-replay" not in response.headers
@@ -621,7 +621,7 @@ def test_existing_open_ticket_is_returned_instead_of_creating_duplicate(
     event = test_session.get(ProcessedEventRecord, "event-existing-ticket")
     assert event is not None
     assert event.response_status == 200
-    assert event.result_reference == "ticket-1"
+    assert event.result_reference == "ticket-932"
     events = [log["event"] for log in parsed_logs(captured_application_logs)]
     assert "existing_ticket_priority_escalated" in events
     assert "existing_ticket_found" in events
@@ -629,10 +629,10 @@ def test_existing_open_ticket_is_returned_instead_of_creating_duplicate(
 
 def test_existing_ticket_result_is_idempotently_replayed() -> None:
     payload = {
-        "customer_id": "customer-lukas-huber",
-        "property_id": "property-landstrasser-42",
-        "category": "plumbing",
-        "description": "The kitchen sink is still leaking.",
+        "customer_id": "customer-anna-mueller",
+        "property_id": "property-neubaugasse-17",
+        "category": "heating",
+        "description": "The heating is still not working.",
         "priority": "medium",
     }
     headers = {"X-Event-ID": "event-existing-replay"}
@@ -648,10 +648,10 @@ def test_existing_ticket_result_is_idempotently_replayed() -> None:
 
 def test_different_event_ids_still_return_one_existing_ticket() -> None:
     payload = {
-        "customer_id": "customer-lukas-huber",
-        "property_id": "property-landstrasser-42",
-        "category": "plumbing",
-        "description": "The kitchen sink is still leaking.",
+        "customer_id": "customer-anna-mueller",
+        "property_id": "property-neubaugasse-17",
+        "category": "heating",
+        "description": "The heating is still not working.",
         "priority": "medium",
     }
     first = client.post(
@@ -662,13 +662,25 @@ def test_different_event_ids_still_return_one_existing_ticket() -> None:
     )
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json()["id"] == second.json()["id"] == "ticket-1"
+    assert first.json()["id"] == second.json()["id"] == "ticket-932"
     assert (
-        test_session.scalar(select(func.count()).select_from(TicketRecord)) == 2
+        test_session.scalar(select(func.count()).select_from(TicketRecord)) == 1
     )
 
 
 def test_closed_ticket_does_not_prevent_new_ticket_creation() -> None:
+    test_session.add(
+        TicketRecord(
+            id="ticket-closed-heating",
+            customer_id="customer-lukas-huber",
+            property_id="property-landstrasser-42",
+            category="heating",
+            description="Previous heating issue was resolved.",
+            priority="low",
+            status="closed",
+        )
+    )
+    test_session.commit()
     response = client.post(
         "/tickets",
         headers={"X-Event-ID": "event-after-closed-ticket"},
@@ -681,7 +693,7 @@ def test_closed_ticket_does_not_prevent_new_ticket_creation() -> None:
         },
     )
     assert response.status_code == 201
-    assert response.json()["id"] != "ticket-2"
+    assert response.json()["id"] != "ticket-closed-heating"
     assert response.json()["status"] == "open"
     assert "x-existing-ticket" not in response.headers
 
@@ -707,17 +719,17 @@ def test_critical_duplicate_escalates_existing_ticket_to_critical() -> None:
         "/tickets",
         headers={"X-Event-ID": "event-critical-escalation"},
         json={
-            "customer_id": "customer-lukas-huber",
-            "property_id": "property-landstrasser-42",
-            "category": "plumbing",
-            "description": "The leak has become severe.",
+            "customer_id": "customer-anna-mueller",
+            "property_id": "property-neubaugasse-17",
+            "category": "heating",
+            "description": "The heating failure has become an emergency.",
             "priority": "critical",
         },
     )
     assert response.status_code == 200
-    assert response.json()["id"] == "ticket-1"
+    assert response.json()["id"] == "ticket-932"
     assert response.json()["priority"] == "critical"
-    assert test_session.get(TicketRecord, "ticket-1").priority == "critical"
+    assert test_session.get(TicketRecord, "ticket-932").priority == "critical"
 
 
 def test_duplicate_ticket_event_replays_original_result(
@@ -726,8 +738,8 @@ def test_duplicate_ticket_event_replays_original_result(
     payload = {
         "customer_id": "customer-anna-mueller",
         "property_id": "property-neubaugasse-17",
-        "category": "heating",
-        "description": "Heating stopped during the night.",
+        "category": "plumbing",
+        "description": "The kitchen sink is leaking.",
         "priority": "high",
     }
     headers = {
@@ -775,8 +787,8 @@ def test_event_id_reuse_with_changed_payload_is_rejected() -> None:
     payload = {
         "customer_id": "customer-anna-mueller",
         "property_id": "property-neubaugasse-17",
-        "category": "heating",
-        "description": "Heating is not working.",
+        "category": "windows",
+        "description": "The living-room window will not close.",
         "priority": "high",
     }
     first = client.post("/tickets", headers=headers, json=payload)
@@ -807,8 +819,8 @@ def test_event_id_reuse_across_operations_is_rejected() -> None:
         json={
             "customer_id": "customer-anna-mueller",
             "property_id": "property-neubaugasse-17",
-            "category": "heating",
-            "description": "Heating is not working.",
+            "category": "electrical",
+            "description": "The hallway lights are not working.",
             "priority": "high",
         },
     )
@@ -878,8 +890,8 @@ def test_failed_ticket_transaction_rolls_back_event_and_side_effect(
         json={
             "customer_id": "customer-anna-mueller",
             "property_id": "property-neubaugasse-17",
-            "category": "heating",
-            "description": "Heating is not working.",
+            "category": "elevator",
+            "description": "The elevator is stuck between floors.",
             "priority": "high",
         },
     )
@@ -898,8 +910,8 @@ def test_failed_ticket_transaction_rolls_back_event_and_side_effect(
         json={
             "customer_id": "customer-anna-mueller",
             "property_id": "property-neubaugasse-17",
-            "category": "heating",
-            "description": "Heating is not working.",
+            "category": "elevator",
+            "description": "The elevator is stuck between floors.",
             "priority": "high",
         },
     )
@@ -1085,13 +1097,13 @@ def test_create_call_outcome() -> None:
         "/call-outcomes",
         json={
             "conversation_id": "conv-123",
-            "customer_id": "customer-lukas-huber",
+            "customer_id": "customer-anna-mueller",
             "intent": "maintenance",
-            "ticket_id": "ticket-1",
+            "ticket_id": "ticket-932",
             "transfer_attempted": True,
             "transfer_success": False,
             "follow_up_required": True,
-            "summary": "Tenant reported a leaking kitchen sink.",
+            "summary": "Tenant requested an update on the heating repair.",
         },
     )
     assert response.status_code == 201
@@ -1102,13 +1114,13 @@ def test_create_call_outcome() -> None:
 def test_duplicate_call_outcome_event_replays_original_result() -> None:
     payload = {
         "conversation_id": "conv-outcome-duplicate",
-        "customer_id": "customer-lukas-huber",
+        "customer_id": "customer-anna-mueller",
         "intent": "maintenance",
-        "ticket_id": "ticket-1",
+        "ticket_id": "ticket-932",
         "transfer_attempted": False,
         "transfer_success": False,
         "follow_up_required": True,
-        "summary": "Tenant reported a leaking kitchen sink.",
+        "summary": "Tenant requested an update on the heating repair.",
     }
     headers = {
         "X-Event-ID": "event-outcome-duplicate",
@@ -1237,7 +1249,7 @@ def test_unresolved_emergency_requires_followup() -> None:
     assert test_session.get(ProcessedEventRecord, "event-missing-followup") is None
 
 
-@pytest.mark.parametrize("ticket_id", [None, "ticket-1"])
+@pytest.mark.parametrize("ticket_id", [None, "ticket-932"])
 def test_unresolved_emergency_requires_critical_ticket(
     ticket_id: str | None,
 ) -> None:
@@ -1247,7 +1259,7 @@ def test_unresolved_emergency_requires_critical_ticket(
         json={
             "conversation_id": "conv-critical-required",
             "customer_id": (
-                "customer-lukas-huber" if ticket_id else "customer-anna-mueller"
+                "customer-anna-mueller"
             ),
             "intent": "emergency",
             "ticket_id": ticket_id,
@@ -1413,8 +1425,8 @@ def test_call_outcome_rejects_unknown_fields() -> None:
         ("unknown", None, "Customer not found"),
         (None, "unknown", "Ticket not found"),
         (
-            "customer-anna-mueller",
-            "ticket-1",
+            "customer-lukas-huber",
+            "ticket-932",
             "Ticket does not belong to this customer",
         ),
     ],

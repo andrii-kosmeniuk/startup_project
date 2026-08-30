@@ -18,7 +18,9 @@ docker compose up --build
 FastAPI is available at <http://localhost:8000> (interactive docs at
 <http://localhost:8000/docs>), n8n at <http://localhost:5678>, and PostgreSQL
 on port `5433`. The API creates the tables and inserts initial seed records on
-its first startup.
+its first startup. The canonical demo data contains one unique caller, two
+callers sharing a phone number, available and unavailable escalation contacts,
+and one realistic open heating ticket.
 
 Run tests locally after installing the dependencies:
 
@@ -26,6 +28,23 @@ Run tests locally after installing the dependencies:
 python -m pip install -r requirements.txt
 pytest
 ```
+
+## Reset demo data
+
+To delete the application records in the local PostgreSQL database and restore
+only the canonical demo dataset, run:
+
+```bash
+docker compose run --rm \
+  -e CONFIRM_DEMO_DATA_RESET=reset-fonio-demo-data \
+  api python -m app.data.reset_demo
+```
+
+The exact confirmation value prevents accidental execution. The reset is
+transactional: if reseeding fails, the deletion is rolled back. It does not
+delete Docker volumes or n8n workflows and credentials. Existing application
+records are not recoverable after a successful reset unless they were backed
+up separately.
 
 ## API
 
