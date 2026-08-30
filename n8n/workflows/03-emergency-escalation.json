@@ -1,0 +1,466 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "8cbf98be-8bc2-4a9e-92b6-654f02f0037f",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "17515a30-7b71-4e5d-b653-f5fa5939338d",
+      "name": "Webhook",
+      "webhookId": "8cbf98be-8bc2-4a9e-92b6-654f02f0037f"
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/properties/{{ $json.body.property_id }}/emergency-contact",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "95d5b46b-e15e-4529-ba30-fb7089eb3510",
+      "name": "Get Emergency Contact"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "e3d82a47-6bf2-4682-a21a-43fd28194d86",
+              "name": "transfer_attempted",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "d8cfad7d-d7e6-4d4c-8a37-16ba4d6ad98a",
+              "name": "transfer_success",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        480,
+        0
+      ],
+      "id": "c7cfa786-b449-4ff1-bef6-366dddd7daed",
+      "name": "Simulate Transfer"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e20bb4ab-e930-410d-8800-c118f9320389",
+              "leftValue": "={{ $json.transfer_success }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        736,
+        0
+      ],
+      "id": "d7d17182-77d0-41b7-9662-d6b098cc56af",
+      "name": "Transfer Successful?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/call-outcomes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Webhook').item.json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"intent\": \"emergency\",\n  \"summary\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"transfer_attempted\": true,\n  \"transfer_success\": true,\n  \"follow_up_required\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        -176
+      ],
+      "id": "efec5eb3-d7db-4973-8cba-aa8af1ce63f4",
+      "name": "Save Successful Outcome"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "0bc4a630-2b37-43fd-b9cc-28e3d09904f0",
+              "name": "action",
+              "value": "transferred",
+              "type": "string"
+            },
+            {
+              "id": "3cf912a6-f9f8-4ad7-8ecd-67dda1b322b6",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "120787ff-e667-4c7c-934a-60a24a242594",
+              "name": "transfer_attempted",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "e7d7ff40-4f0f-4e39-8600-d4b5d6d08e9b",
+              "name": "transfer_success",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "0ec3fc6d-17b3-4235-945c-280d96b1a616",
+              "name": "follow_up_required",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1184,
+        -176
+      ],
+      "id": "2632182a-ccf9-42db-bbc2-8977462bf439",
+      "name": "Build Success Response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/tickets",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"property_id\": \"{{ $('Webhook').item.json.body.property_id }}\",\n  \"category\": \"{{ $('Webhook').item.json.body.category }}\",\n  \"description\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"priority\": \"critical\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        960,
+        80
+      ],
+      "id": "b00e465d-8521-43bd-b46f-177b2d04c4ab",
+      "name": "Create Critical Ticket"
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/properties/{{ $json.property_id }}/manager",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1184,
+        80
+      ],
+      "id": "99b29ee3-6a71-4a9b-8f04-586cbd41faed",
+      "name": "Get Property Manager"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "c56aa548-5c54-4a20-9df3-eb51de7aa643",
+              "name": "notification_sent",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1408,
+        80
+      ],
+      "id": "95042934-62c7-4533-a34d-1e2cbddd8da7",
+      "name": "Simulate Manager Notification"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/call-outcomes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Webhook').item.json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"intent\": \"emergency\",\n  \"summary\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"ticket_id\": \"{{ $('Create Critical Ticket').item.json.id }}\",\n  \"transfer_attempted\": true,\n  \"transfer_success\": false,\n  \"follow_up_required\": true\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1632,
+        80
+      ],
+      "id": "fb8363c8-a940-43b5-84fc-7b80f89b6259",
+      "name": "Save Fallback Outcome"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3f686493-1efb-4a3c-a43d-8d3abfa1bc42",
+              "name": "action",
+              "value": "emergency_fallback",
+              "type": "string"
+            },
+            {
+              "id": "65c9528e-1d08-416c-813b-f06e048e336a",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "70eaeb5b-878f-4331-b652-6fc73c93ea73",
+              "name": "transfer_success",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "7cd197f5-c5ca-45c3-be97-bf1ca526cdd8",
+              "name": "notification_sent",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "3437a12d-ef0b-4290-ace8-97464f432664",
+              "name": "follow_up_required",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "ad1d50ce-c8ea-4ed3-ba97-d5536bff7169",
+              "name": "ticket",
+              "value": "={{\n  {\n    id: $('Create Critical Ticket').item.json.id,\n    category: $('Create Critical Ticket').item.json.category,\n    priority: $('Create Critical Ticket').item.json.priority,\n    status: $('Create Critical Ticket').item.json.status\n  }\n}}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1856,
+        80
+      ],
+      "id": "eae16cb9-afdf-42f4-9df3-936abcb16492",
+      "name": "Build Fallback Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1408,
+        -176
+      ],
+      "id": "55927e6f-4d73-45d3-a4d2-cd51c2e847b0",
+      "name": "Respond Success"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2080,
+        80
+      ],
+      "id": "68563cae-d749-48e9-b0c7-e4fc8379e95d",
+      "name": "Respond Fallback"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Emergency Contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Emergency Contact": {
+      "main": [
+        [
+          {
+            "node": "Simulate Transfer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Transfer": {
+      "main": [
+        [
+          {
+            "node": "Transfer Successful?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transfer Successful?": {
+      "main": [
+        [
+          {
+            "node": "Save Successful Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Critical Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Successful Outcome": {
+      "main": [
+        [
+          {
+            "node": "Build Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Critical Ticket": {
+      "main": [
+        [
+          {
+            "node": "Get Property Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Property Manager": {
+      "main": [
+        [
+          {
+            "node": "Simulate Manager Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Manager Notification": {
+      "main": [
+        [
+          {
+            "node": "Save Fallback Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Fallback Outcome": {
+      "main": [
+        [
+          {
+            "node": "Build Fallback Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Fallback Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
+  }
+}

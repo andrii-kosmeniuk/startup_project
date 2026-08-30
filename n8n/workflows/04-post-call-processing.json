@@ -1,0 +1,303 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "25111998-105f-4fe0-88e2-a1c7e70df832",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9ad319c6-fad8-4616-8ab4-8432b0221dbd",
+      "name": "Webhook",
+      "webhookId": "25111998-105f-4fe0-88e2-a1c7e70df832"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "a4cca197-7af5-47af-a8d2-e69a7dbd06b6",
+              "leftValue": "={{ $json.follow_up_required }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "624f1c20-839f-4718-98fa-08d96fcfde47",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        96
+      ],
+      "id": "0add57aa-1bb2-49cf-bf27-6a994b94a394",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "54f57711-9fe6-4176-8039-c37779de5138",
+              "name": "action",
+              "value": "=follow_up_created",
+              "type": "string"
+            },
+            {
+              "id": "02a3a252-9f29-49bd-9119-e10731eb1500",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "5151fc11-55fb-4a7a-b753-303604fbfbec",
+              "name": "ticket_id",
+              "value": "={{ $('Webhook').item.json.body.ticket_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f76b6193-3b24-4c63-a151-a6fc3f8a310f",
+              "name": "follow_up_required",
+              "value": "={{ $('Webhook').item.json.body.follow_up_required }}",
+              "type": "boolean"
+            },
+            {
+              "id": "72b7cc3d-8f92-44b9-a41e-7cf422622858",
+              "name": "follow_up_created",
+              "value": "={{ $json.follow_up_created }}",
+              "type": "boolean"
+            },
+            {
+              "id": "60c02700-51ab-4324-bde5-015358e79994",
+              "name": "notification_sent",
+              "value": "={{ $json.notification_sent }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "64fe8bce-59be-4078-8176-4a75b690fd96",
+      "name": "Build Follow-up Response"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8aa7dcd0-c7b8-4898-966c-9ea9b42d371d",
+              "name": "follow_up_created",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "ee66e9f3-dc0c-48f3-be7a-1c20db652b19",
+              "name": "notification_sent",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        -96
+      ],
+      "id": "9afe1043-aab9-4efa-80b4-6137c1ab13e8",
+      "name": "Simulate Follow-up"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1088,
+        -96
+      ],
+      "id": "5bff1132-aafd-4f65-821c-832a92ed5bab",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "19245c54-be60-42f0-ba78-01810b896c55",
+              "name": "action",
+              "value": "completed",
+              "type": "string"
+            },
+            {
+              "id": "02e146ea-f7bf-4c43-9b6c-0a8d0f5579e9",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "3c76f00b-f4db-489a-af65-76a1070c7ca0",
+              "name": "follow_up_required",
+              "value": "={{ $('Webhook').item.json.body.follow_up_required }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        672,
+        96
+      ],
+      "id": "0452a308-415f-48c6-b346-130052cc5d0b",
+      "name": "Build Completed Response"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/call-outcomes",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"conversation_id\": \"{{ $json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $json.body.customer_id }}\",\n  \"intent\": \"{{ $json.body.intent }}\",\n  \"summary\": \"{{ $json.body.summary }}\",\n  \"ticket_id\": \"{{ $json.body.ticket_id }}\",\n  \"transfer_attempted\": {{ $json.body.transfer_attempted }},\n  \"transfer_success\": {{ $json.body.transfer_success }},\n  \"follow_up_required\": {{ $json.body.follow_up_required }}\n} ",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "3980926f-46de-4321-938f-2f1c9faa2bfd",
+      "name": "POST /call-outcomes"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "POST /call-outcomes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Simulate Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Completed Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Follow-up Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Build Follow-up Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Completed Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST /call-outcomes": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
+  }
+}

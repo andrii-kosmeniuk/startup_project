@@ -1,0 +1,333 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "36f7ee40-074a-44f6-aeb9-e0f0c75b92ad",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "4576836e-9743-4aff-a66e-ae02d860facd",
+      "name": "Webhook",
+      "webhookId": "36f7ee40-074a-44f6-aeb9-e0f0c75b92ad"
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/customers/{{ $json.body.customer_id }}/open-tickets",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "f9557c68-2709-4729-80c3-21a2c6aef077",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const request = $('Webhook').item.json.body;\nconst tickets = $input.all().map(item => item.json);\n\nconst similarTicket = tickets.find(ticket =>\n  ticket.property_id === request.property_id &&\n  ticket.category === request.category &&\n  ['open', 'in_progress'].includes(ticket.status)\n);\n\nreturn [{\n  json: {\n    similar_ticket_exists: !!similarTicket,\n    existing_ticket: similarTicket || null,\n    request\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "id": "55062a1c-754a-467f-ab20-66ffaf8529ae",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7b882265-a780-4804-8180-d4e107c1f3fe",
+              "leftValue": "={{ $json.similar_ticket_exists }}",
+              "rightValue": "jk",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        0
+      ],
+      "id": "0fdfee01-b5aa-4849-a3b1-4fae69f8c17b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "09d098d9-579f-4f1b-9e3f-d0bfc3a61812",
+              "name": "action",
+              "value": "existing_ticket",
+              "type": "string"
+            },
+            {
+              "id": "2beef25c-5c81-4aba-af3f-cbd1f0e979d1",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "8df7e568-dfec-4500-86b9-fafead74b503",
+              "name": "tickets",
+              "value": "={{\n  {\n    id: $('Code in JavaScript').item.json.existing_ticket.id,\n    category: $('Code in JavaScript').item.json.existing_ticket.category,\n    description: $('Code in JavaScript').item.json.existing_ticket.description,\n    priority: $('Code in JavaScript').item.json.existing_ticket.priority,\n    status: $('Code in JavaScript').item.json.existing_ticket.status\n  }\n}}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        896,
+        -96
+      ],
+      "id": "51537b27-6dc1-415c-8b46-77822152d8ad",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1120,
+        -96
+      ],
+      "id": "f33b914c-b67d-423e-9a36-ecc862f3f79c",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://api:8000/tickets",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "event_id",
+              "value": "={{ $('Webhook').item.json.body.event_id }}"
+            },
+            {
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}"
+            },
+            {
+              "name": "customer_id",
+              "value": "={{ $('Webhook').item.json.body.customer_id }}"
+            },
+            {
+              "name": "property_id",
+              "value": "={{ $('Webhook').item.json.body.property_id }}"
+            },
+            {
+              "name": "category",
+              "value": "={{ $('Webhook').item.json.body.category }}"
+            },
+            {
+              "name": "description",
+              "value": "={{ $('Webhook').item.json.body.description }}"
+            },
+            {
+              "name": "priority",
+              "value": "={{ $('Webhook').item.json.body.priority }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        896,
+        96
+      ],
+      "id": "16b2ea52-579a-441f-b78e-0e478e79970c",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "3597cf0a-c3cc-4107-92f9-ac746f3ba1ef",
+              "name": "action",
+              "value": "created",
+              "type": "string"
+            },
+            {
+              "id": "93b6f723-1b99-4e5d-a673-84f4f64dc10d",
+              "name": "conversation_id",
+              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "e869abec-2ab0-4809-a9f2-dcf7b6a3db88",
+              "name": "ticket",
+              "value": "={{   \n{     \nid: $('HTTP Request1').item.json.id,     category: $('HTTP Request1').item.json.category,     \ndescription: $('HTTP Request1').item.json.description,     \npriority: $('HTTP Request1').item.json.priority,     \nstatus: $('HTTP Request1').item.json.status   \n} \n}}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1120,
+        96
+      ],
+      "id": "383d373a-3bf7-43af-aea4-002e1d23e7fa",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1344,
+        96
+      ],
+      "id": "0ff4880e-e5fb-454a-871c-f04345759670",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
+  }
+}
