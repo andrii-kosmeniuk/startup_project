@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.data.database import Base, get_db
-from app.data.models import CallOutcomeRecord, ProcessedEventRecord, TicketRecord
+from app.data.models import (
+    CallOutcomeRecord,
+    EmergencyContactRecord,
+    ProcessedEventRecord,
+    PropertyManagerRecord,
+    TicketRecord,
+)
 from app.data.seed import seed_database
 from app.security.api_key import validate_api_key_configuration
 from app.observability.logging import JsonFormatter, application_logger
@@ -696,6 +702,24 @@ def test_existing_ticket_matching_is_scoped_by_category() -> None:
     assert response.json()["category"] == "electrical"
 
 
+def test_critical_duplicate_escalates_existing_ticket_to_critical() -> None:
+    response = client.post(
+        "/tickets",
+        headers={"X-Event-ID": "event-critical-escalation"},
+        json={
+            "customer_id": "customer-lukas-huber",
+            "property_id": "property-landstrasser-42",
+            "category": "plumbing",
+            "description": "The leak has become severe.",
+            "priority": "critical",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["id"] == "ticket-1"
+    assert response.json()["priority"] == "critical"
+    assert test_session.get(TicketRecord, "ticket-1").priority == "critical"
+
+
 def test_duplicate_ticket_event_replays_original_result(
     captured_application_logs: io.StringIO,
 ) -> None:
@@ -1032,6 +1056,30 @@ def test_unavailable_emergency_contact_returns_retryable_503() -> None:
     }
 
 
+def test_missing_linked_manager_is_distinct_from_unavailable_manager() -> None:
+    manager = test_session.get(PropertyManagerRecord, "manager-1")
+    assert manager is not None
+    test_session.delete(manager)
+    test_session.commit()
+    response = client.get("/properties/property-neubaugasse-17/manager")
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "PROPERTY_MANAGER_NOT_FOUND"
+    assert response.json()["error"]["retryable"] is False
+
+
+def test_missing_linked_contact_is_distinct_from_unavailable_contact() -> None:
+    contact = test_session.get(EmergencyContactRecord, "emergency-1")
+    assert contact is not None
+    test_session.delete(contact)
+    test_session.commit()
+    response = client.get(
+        "/properties/property-neubaugasse-17/emergency-contact"
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "EMERGENCY_CONTACT_NOT_FOUND"
+    assert response.json()["error"]["retryable"] is False
+
+
 def test_create_call_outcome() -> None:
     response = client.post(
         "/call-outcomes",
@@ -1081,6 +1129,27 @@ def test_duplicate_call_outcome_event_replays_original_result() -> None:
     assert event is not None
     assert event.operation == "create_call_outcome"
     assert event.result_reference == first.json()["id"]
+
+
+def test_call_outcome_event_reuse_with_changed_payload_is_rejected() -> None:
+    headers = {"X-Event-ID": "event-outcome-payload-mismatch"}
+    payload = {
+        "conversation_id": "conv-outcome-payload-mismatch",
+        "intent": "maintenance",
+        "summary": "Original summary.",
+    }
+    first = client.post("/call-outcomes", headers=headers, json=payload)
+    second = client.post(
+        "/call-outcomes",
+        headers=headers,
+        json={**payload, "summary": "Changed summary."},
+    )
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+    assert (
+        test_session.scalar(select(func.count()).select_from(CallOutcomeRecord)) == 1
+    )
 
 
 def add_critical_ticket(ticket_id: str = "ticket-critical-test") -> TicketRecord:

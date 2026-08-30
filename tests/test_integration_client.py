@@ -5,11 +5,14 @@ import logging
 
 import httpx
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 from app.errors import (
     customer_system_response_handler,
     customer_system_timeout_handler,
     customer_system_unavailable_handler,
+    register_exception_handlers,
 )
 from app.integrations.client import CustomerSystemClient, CustomerSystemClientConfig
 from app.integrations.errors import (
@@ -23,6 +26,7 @@ from app.observability.logging import (
     conversation_id_context,
     request_id_context,
 )
+from app.observability.middleware import RequestObservabilityMiddleware
 
 
 def make_client(
@@ -270,3 +274,45 @@ def test_customer_system_errors_map_to_structured_responses() -> None:
     assert permanent_body["error"]["code"] == "CUSTOMER_SYSTEM_REQUEST_FAILED"
     assert permanent_body["error"]["retryable"] is False
     assert permanent_body["error"]["details"] == {"upstream_status": 400}
+
+
+@pytest.mark.parametrize(
+    ("path", "expected_status", "expected_code", "retryable"),
+    [
+        ("/timeout", 503, "CUSTOMER_SYSTEM_TIMEOUT", True),
+        ("/unavailable", 503, "CUSTOMER_SYSTEM_UNAVAILABLE", True),
+        ("/rejected", 502, "CUSTOMER_SYSTEM_REQUEST_FAILED", False),
+    ],
+)
+def test_customer_system_failures_use_http_error_contract(
+    path: str, expected_status: int, expected_code: str, retryable: bool
+) -> None:
+    failure_app = FastAPI()
+    failure_app.add_middleware(RequestObservabilityMiddleware)
+    register_exception_handlers(failure_app)
+
+    @failure_app.get("/timeout")
+    def timeout() -> None:
+        raise CustomerSystemTimeoutError(3)
+
+    @failure_app.get("/unavailable")
+    def unavailable() -> None:
+        raise CustomerSystemUnavailableError(3, 503)
+
+    @failure_app.get("/rejected")
+    def rejected() -> None:
+        raise CustomerSystemResponseError(400)
+
+    response = TestClient(failure_app).get(
+        path, headers={"X-Conversation-ID": "conv-customer-system-failure"}
+    )
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == expected_code
+    assert response.json()["error"]["retryable"] is retryable
+    assert response.json()["error"]["conversation_id"] == (
+        "conv-customer-system-failure"
+    )
+    assert response.headers["x-conversation-id"] == (
+        "conv-customer-system-failure"
+    )
+    assert "x-request-id" in response.headers
