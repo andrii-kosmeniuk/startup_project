@@ -70,16 +70,21 @@ match count, and a customer list.
 ## n8n connectivity
 
 Compose places both services on its default network, where n8n reaches the API
-at `http://api:8000`. To try it, create a Manual Trigger followed by an HTTP
-Request node using:
+at `http://api:8000`. Import the four workflow exports from
+`n8n/workflows/`:
 
 ```text
-GET http://api:8000/customers/by-phone/+436601234567
+01-caller-context.json
+02-maintenance-request.json
+03-emergency-escalation.json
+04-post-call-processing.json
 ```
 
-Configure an n8n Header Auth credential with header name `X-API-Key` and the
-same `API_KEY` value used by the API container. Do not store the secret directly
-in workflow exports.
+Configure an n8n Header Auth credential named `Fonio FastAPI API Key`, with
+header name `X-API-Key` and the same `API_KEY` value used by the API container.
+After importing, select this credential on every FastAPI HTTP Request node.
+The exports contain only the credential reference; they never contain its
+secret value.
 
 Send `X-Conversation-ID` with each n8n request to correlate API and workflow
 logs. The API returns the same header together with a generated `X-Request-ID`.
@@ -96,6 +101,25 @@ and at most three attempts. It retries only network errors, timeouts, and HTTP
 `502`, `503`, or `504`; permanent `4xx` responses and other status errors are
 never retried. This client is ready to be wired into the explicit legacy-system
 operations introduced by the failure-handling phase.
+
+The n8n HTTP nodes use bounded retries and explicit error outputs. Workflow
+fallback responses are safe for the caller and do not expose backend error
+details. Emergency transfer and manager notification nodes remain clearly
+labelled simulations until the documented Fonio integration is connected in
+Phase 11.
+
+Example webhook payloads for normal, duplicate, ambiguous, unavailable, and
+emergency paths are stored under `scenarios/`. To verify the exports
+statically, run:
+
+```bash
+pytest tests/test_n8n_workflows.py
+```
+
+For runtime validation, import the workflows into a clean n8n instance,
+configure the credential, activate each workflow, submit the corresponding
+scenario payloads, and confirm that repeated event IDs create only one ticket
+or call outcome.
 
 Ticket creation checks for an existing open ticket with the same customer,
 property, and category. A match is returned with `X-Existing-Ticket: true`

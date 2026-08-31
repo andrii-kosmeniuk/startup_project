@@ -1,0 +1,10 @@
+{
+  "event_id": "event-emergency-001",
+  "conversation_id": "conversation-emergency-001",
+  "customer_id": "customer-anna-mueller",
+  "property_id": "property-neubaugasse-17",
+  "intent": "emergency",
+  "category": "water_leak",
+  "description": "Water is pouring through the ceiling into the living room.",
+  "severity": "critical"
+}

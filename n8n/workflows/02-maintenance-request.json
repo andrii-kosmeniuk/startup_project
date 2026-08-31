@@ -1,4 +1,5 @@
 {
+  "name": "Fonio Maintenance Request",
   "nodes": [
     {
       "parameters": {
@@ -9,40 +10,54 @@
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [
-        0,
-        0
-      ],
+      "position": [0, 0],
       "id": "4576836e-9743-4aff-a66e-ae02d860facd",
-      "name": "Webhook",
+      "name": "Receive Maintenance Request",
       "webhookId": "36f7ee40-074a-44f6-aeb9-e0f0c75b92ad"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/customers/{{ $json.body.customer_id }}/open-tickets",
-        "options": {}
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "={{ 'http://api:8000/customers/' + encodeURIComponent($json.body.customer_id) + '/open-tickets' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $json.body.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [
-        224,
-        0
-      ],
+      "position": [256, 0],
       "id": "f9557c68-2709-4729-80c3-21a2c6aef077",
-      "name": "HTTP Request"
+      "name": "Check Customer Open Tickets",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "jsCode": "const request = $('Webhook').item.json.body;\nconst tickets = $input.all().map(item => item.json);\n\nconst similarTicket = tickets.find(ticket =>\n  ticket.property_id === request.property_id &&\n  ticket.category === request.category &&\n  ['open', 'in_progress'].includes(ticket.status)\n);\n\nreturn [{\n  json: {\n    similar_ticket_exists: !!similarTicket,\n    existing_ticket: similarTicket || null,\n    request\n  }\n}];"
+        "jsCode": "const body = $('Receive Maintenance Request').first().json.body;\nconst tickets = $input.all().flatMap((item) => Array.isArray(item.json) ? item.json : [item.json]);\nconst existingTicket = tickets.find((ticket) =>\n  ticket.customer_id === body.customer_id &&\n  ticket.property_id === body.property_id &&\n  ticket.category === body.category &&\n  ['open', 'in_progress'].includes(ticket.status)\n) ?? null;\nconst priorityBySeverity = { low: 'low', normal: 'medium', high: 'high', critical: 'critical' };\n\nreturn [{\n  json: {\n    request: {\n      event_id: body.event_id,\n      conversation_id: body.conversation_id,\n      customer_id: body.customer_id,\n      property_id: body.property_id,\n      category: body.category,\n      description: body.description,\n      severity: body.severity\n    },\n    priority: priorityBySeverity[body.severity] ?? 'medium',\n    existing_ticket: existingTicket,\n    matching_ticket_found: existingTicket !== null\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        448,
-        0
-      ],
+      "position": [512, -96],
       "id": "55062a1c-754a-467f-ab20-66ffaf8529ae",
-      "name": "Code in JavaScript"
+      "name": "Find Matching Open Ticket"
     },
     {
       "parameters": {
@@ -56,8 +71,8 @@
           "conditions": [
             {
               "id": "7b882265-a780-4804-8180-d4e107c1f3fe",
-              "leftValue": "={{ $json.similar_ticket_exists }}",
-              "rightValue": "jk",
+              "leftValue": "={{ $json.matching_ticket_found }}",
+              "rightValue": true,
               "operator": {
                 "type": "boolean",
                 "operation": "true",
@@ -71,12 +86,9 @@
       },
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
-      "position": [
-        672,
-        0
-      ],
+      "position": [768, -96],
       "id": "0fdfee01-b5aa-4849-a3b1-4fae69f8c17b",
-      "name": "If"
+      "name": "Matching Ticket Found?"
     },
     {
       "parameters": {
@@ -91,13 +103,13 @@
             {
               "id": "2beef25c-5c81-4aba-af3f-cbd1f0e979d1",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $json.request.conversation_id }}",
               "type": "string"
             },
             {
               "id": "8df7e568-dfec-4500-86b9-fafead74b503",
-              "name": "tickets",
-              "value": "={{\n  {\n    id: $('Code in JavaScript').item.json.existing_ticket.id,\n    category: $('Code in JavaScript').item.json.existing_ticket.category,\n    description: $('Code in JavaScript').item.json.existing_ticket.description,\n    priority: $('Code in JavaScript').item.json.existing_ticket.priority,\n    status: $('Code in JavaScript').item.json.existing_ticket.status\n  }\n}}",
+              "name": "ticket",
+              "value": "={{ $json.existing_ticket }}",
               "type": "object"
             }
           ]
@@ -106,12 +118,9 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
-      "position": [
-        896,
-        -96
-      ],
+      "position": [1024, -240],
       "id": "51537b27-6dc1-415c-8b46-77822152d8ad",
-      "name": "Edit Fields"
+      "name": "Build Existing Ticket Response"
     },
     {
       "parameters": {
@@ -123,69 +132,55 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [
-        1120,
-        -96
-      ],
+      "position": [1280, -240],
       "id": "f33b914c-b67d-423e-9a36-ecc862f3f79c",
-      "name": "Respond to Webhook"
+      "name": "Respond With Existing Ticket"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "=http://api:8000/tickets",
+        "url": "http://api:8000/tickets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "Content-Type",
               "value": "application/json"
+            },
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $json.request.conversation_id }}"
+            },
+            {
+              "name": "X-Event-ID",
+              "value": "={{ $json.request.event_id }}"
             }
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "event_id",
-              "value": "={{ $('Webhook').item.json.body.event_id }}"
-            },
-            {
-              "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}"
-            },
-            {
-              "name": "customer_id",
-              "value": "={{ $('Webhook').item.json.body.customer_id }}"
-            },
-            {
-              "name": "property_id",
-              "value": "={{ $('Webhook').item.json.body.property_id }}"
-            },
-            {
-              "name": "category",
-              "value": "={{ $('Webhook').item.json.body.category }}"
-            },
-            {
-              "name": "description",
-              "value": "={{ $('Webhook').item.json.body.description }}"
-            },
-            {
-              "name": "priority",
-              "value": "={{ $('Webhook').item.json.body.priority }}"
-            }
-          ]
-        },
-        "options": {}
+        "specifyBody": "json",
+        "jsonBody": "={{ {\n  customer_id: $json.request.customer_id,\n  property_id: $json.request.property_id,\n  category: $json.request.category,\n  description: $json.request.description,\n  priority: $json.priority\n} }}",
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
-      "position": [
-        896,
-        96
-      ],
+      "position": [1024, 48],
       "id": "16b2ea52-579a-441f-b78e-0e478e79970c",
-      "name": "HTTP Request1"
+      "name": "Create Ticket Idempotently",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -194,19 +189,19 @@
             {
               "id": "3597cf0a-c3cc-4107-92f9-ac746f3ba1ef",
               "name": "action",
-              "value": "created",
+              "value": "ticket_ready",
               "type": "string"
             },
             {
               "id": "93b6f723-1b99-4e5d-a673-84f4f64dc10d",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Receive Maintenance Request').first().json.body.conversation_id }}",
               "type": "string"
             },
             {
               "id": "e869abec-2ab0-4809-a9f2-dcf7b6a3db88",
               "name": "ticket",
-              "value": "={{   \n{     \nid: $('HTTP Request1').item.json.id,     category: $('HTTP Request1').item.json.category,     \ndescription: $('HTTP Request1').item.json.description,     \npriority: $('HTTP Request1').item.json.priority,     \nstatus: $('HTTP Request1').item.json.status   \n} \n}}",
+              "value": "={{ $json }}",
               "type": "object"
             }
           ]
@@ -215,12 +210,9 @@
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
-      "position": [
-        1120,
-        96
-      ],
+      "position": [1280, 0],
       "id": "383d373a-3bf7-43af-aea4-002e1d23e7fa",
-      "name": "Edit Fields1"
+      "name": "Build Ticket Ready Response"
     },
     {
       "parameters": {
@@ -232,102 +224,144 @@
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [
-        1344,
-        96
-      ],
+      "position": [1536, 0],
       "id": "0ff4880e-e5fb-454a-871c-f04345759670",
-      "name": "Respond to Webhook1"
+      "name": "Respond With Ticket"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "31695647-a056-4c69-8d69-bd31358ed3f7",
+              "name": "action",
+              "value": "temporary_failure",
+              "type": "string"
+            },
+            {
+              "id": "70218b90-a6a1-43a6-bb09-0a60e539bf04",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Maintenance Request').first().json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f3d74ed2-258e-447b-97b9-6fe2c7083114",
+              "name": "error",
+              "value": "={{ { code: 'OPEN_TICKET_LOOKUP_FAILED', message: 'Maintenance requests are temporarily unavailable. Please try again.', retryable: true } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [512, 160],
+      "id": "7cd74387-c15b-4714-bc78-f88bfc4311cb",
+      "name": "Build Ticket Lookup Failure"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [768, 160],
+      "id": "6e38300c-b682-487b-824b-29f0463ca594",
+      "name": "Respond Ticket Lookup Failure"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "53b00153-335e-43a6-941c-f61c03b3a9ac",
+              "name": "action",
+              "value": "temporary_failure",
+              "type": "string"
+            },
+            {
+              "id": "dafc5d6f-a09c-4927-8370-e7b588640bd7",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Maintenance Request').first().json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f8bfa588-60be-4e1b-80c2-85d0ed20aec7",
+              "name": "error",
+              "value": "={{ { code: 'TICKET_CREATE_FAILED', message: 'The maintenance request could not be saved. Please try again.', retryable: true } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [1280, 192],
+      "id": "4ec70735-f4b8-4857-a874-c0a9a80f769a",
+      "name": "Build Ticket Creation Failure"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 503
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [1536, 192],
+      "id": "8b53dbed-828e-4290-a56f-139c3d287134",
+      "name": "Respond Ticket Creation Failure"
     }
   ],
   "connections": {
-    "Webhook": {
+    "Receive Maintenance Request": {
+      "main": [[{"node": "Check Customer Open Tickets", "type": "main", "index": 0}]]
+    },
+    "Check Customer Open Tickets": {
       "main": [
-        [
-          {
-            "node": "HTTP Request",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Find Matching Open Ticket", "type": "main", "index": 0}],
+        [{"node": "Build Ticket Lookup Failure", "type": "main", "index": 0}]
       ]
     },
-    "HTTP Request": {
+    "Find Matching Open Ticket": {
+      "main": [[{"node": "Matching Ticket Found?", "type": "main", "index": 0}]]
+    },
+    "Matching Ticket Found?": {
       "main": [
-        [
-          {
-            "node": "Code in JavaScript",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Build Existing Ticket Response", "type": "main", "index": 0}],
+        [{"node": "Create Ticket Idempotently", "type": "main", "index": 0}]
       ]
     },
-    "Code in JavaScript": {
+    "Build Existing Ticket Response": {
+      "main": [[{"node": "Respond With Existing Ticket", "type": "main", "index": 0}]]
+    },
+    "Create Ticket Idempotently": {
       "main": [
-        [
-          {
-            "node": "If",
-            "type": "main",
-            "index": 0
-          }
-        ]
+        [{"node": "Build Ticket Ready Response", "type": "main", "index": 0}],
+        [{"node": "Build Ticket Creation Failure", "type": "main", "index": 0}]
       ]
     },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Edit Fields",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "HTTP Request1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Build Ticket Ready Response": {
+      "main": [[{"node": "Respond With Ticket", "type": "main", "index": 0}]]
     },
-    "Edit Fields": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Build Ticket Lookup Failure": {
+      "main": [[{"node": "Respond Ticket Lookup Failure", "type": "main", "index": 0}]]
     },
-    "HTTP Request1": {
-      "main": [
-        [
-          {
-            "node": "Edit Fields1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Edit Fields1": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
+    "Build Ticket Creation Failure": {
+      "main": [[{"node": "Respond Ticket Creation Failure", "type": "main", "index": 0}]]
     }
   },
-  "pinData": {},
-  "meta": {
-    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
-  }
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
 }

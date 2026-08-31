@@ -1,0 +1,10 @@
+{
+  "event_id": "event-normal-maintenance-001",
+  "conversation_id": "conversation-normal-maintenance-001",
+  "customer_id": "customer-lukas-huber",
+  "property_id": "property-landstrasser-42",
+  "intent": "maintenance",
+  "category": "plumbing",
+  "description": "The kitchen sink is leaking slowly beneath the cabinet.",
+  "severity": "normal"
+}

@@ -1,9 +1,14 @@
 {
+  "name": "Fonio - Caller Context",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "3791278f-dbaa-4552-bd0c-bbab33421cc8",
+        "path": "caller-context",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -13,23 +18,45 @@
         0,
         0
       ],
-      "id": "7515ff9d-a9d4-4325-a796-23b7f8dd8593",
-      "name": "Webhook",
-      "webhookId": "3791278f-dbaa-4552-bd0c-bbab33421cc8"
+      "id": "caller-context-webhook",
+      "name": "Receive Caller Context Request"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/customers/by-phone/{{ $json.body.phone }}",
-        "options": {}
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "={{ 'http://api:8000/customers/by-phone/' + encodeURIComponent($json.body.phone) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $json.body.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        224,
+        260,
         0
       ],
-      "id": "1f270623-bacf-4335-9d32-d785f59ded5a",
-      "name": "HTTP Request"
+      "id": "lookup-caller-by-phone",
+      "name": "Lookup Caller by Phone",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -45,17 +72,19 @@
                 },
                 "conditions": [
                   {
+                    "id": "status-is-not-found",
                     "leftValue": "={{ $json.status }}",
                     "rightValue": "not_found",
                     "operator": {
                       "type": "string",
                       "operation": "equals"
-                    },
-                    "id": "192e4642-3503-428c-9545-2202b48aebdd"
+                    }
                   }
                 ],
                 "combinator": "and"
-              }
+              },
+              "renameOutput": true,
+              "outputKey": "Not Found"
             },
             {
               "conditions": {
@@ -67,7 +96,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "1709a86f-4f12-4910-9e37-d4c5f522aa01",
+                    "id": "status-is-unique",
                     "leftValue": "={{ $json.status }}",
                     "rightValue": "unique",
                     "operator": {
@@ -77,7 +106,9 @@
                   }
                 ],
                 "combinator": "and"
-              }
+              },
+              "renameOutput": true,
+              "outputKey": "Unique"
             },
             {
               "conditions": {
@@ -89,7 +120,7 @@
                 },
                 "conditions": [
                   {
-                    "id": "74cc849a-e961-45db-8bec-e35fe55ac9eb",
+                    "id": "status-is-ambiguous",
                     "leftValue": "={{ $json.status }}",
                     "rightValue": "ambiguous",
                     "operator": {
@@ -99,95 +130,152 @@
                   }
                 ],
                 "combinator": "and"
-              }
+              },
+              "renameOutput": true,
+              "outputKey": "Ambiguous"
             }
           ]
         },
-        "options": {}
+        "options": {
+          "fallbackOutput": "extra"
+        }
       },
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.4,
       "position": [
-        448,
-        -16
+        520,
+        -40
       ],
-      "id": "4c16984e-2de4-4c3c-88d1-5cffe3854db6",
-      "name": "Switch"
+      "id": "route-caller-match-status",
+      "name": "Route Caller Match Status"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/properties/{{ $json.customers[0].property_id }}",
-        "options": {}
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "={{ 'http://api:8000/properties/' + encodeURIComponent($('Lookup Caller by Phone').first().json.customers[0].property_id) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        752,
+        800,
         0
       ],
-      "id": "2afb3212-4b33-4ecf-88ae-2a7ca300ce35",
-      "name": "HTTP Request2"
+      "id": "load-matched-property",
+      "name": "Load Matched Property",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/customers/{{ $('Switch').item.json.customers[0].id }}/open-tickets",
-        "options": {}
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "={{ 'http://api:8000/customers/' + encodeURIComponent($('Lookup Caller by Phone').first().json.customers[0].id) + '/open-tickets' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1040,
+        1060,
         0
       ],
-      "id": "55e14ff0-be82-483d-9156-323ba621b6b2",
-      "name": "HTTP Request3"
+      "id": "load-open-tickets",
+      "name": "Load Open Tickets",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "233ad6d7-88c5-410a-8731-6f358dff612e",
+              "id": "unique-conversation-id",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}",
               "type": "string"
             },
             {
-              "id": "8788fb4c-4227-4765-af13-189c55140ffa",
+              "id": "unique-match-status",
               "name": "match_status",
-              "value": "={{ $('HTTP Request').item.json.status }}",
+              "value": "unique",
               "type": "string"
             },
             {
-              "id": "f2ee1893-a705-430d-bfce-82f3e6197b14",
+              "id": "unique-customer",
               "name": "customer",
-              "value": "={{\n  {\n    id: $('HTTP Request').item.json.customers[0].id,\n    first_name: $('HTTP Request').item.json.customers[0].first_name,\n    last_name: $('HTTP Request').item.json.customers[0].last_name,\n    phone: $('HTTP Request').item.json.customers[0].phone\n  }\n}}",
+              "value": "={{ $('Lookup Caller by Phone').first().json.customers[0] }}",
               "type": "object"
             },
             {
-              "id": "64caeafd-311b-4d1e-b38d-c077eda9a059",
+              "id": "unique-property",
               "name": "property",
-              "value": "={{\n  {\n    id: $('HTTP Request2').item.json.id,\n    address: $('HTTP Request2').item.json.address\n  }\n}}",
+              "value": "={{ $('Load Matched Property').first().json }}",
               "type": "object"
             },
             {
-              "id": "0dd7248c-c005-402b-9dc4-b5321ffa1cad",
+              "id": "unique-open-tickets",
               "name": "open_tickets",
-              "value": "={{\n  $('HTTP Request3').all().map(item => ({\n    id: item.json.id,\n    category: item.json.category,\n    status: item.json.status\n  }))\n}}",
+              "value": "={{ $('Load Open Tickets').all().flatMap(item => Array.isArray(item.json) ? item.json : [item.json]) }}",
               "type": "array"
+            },
+            {
+              "id": "unique-temporary-fallback",
+              "name": "temporary_fallback",
+              "value": false,
+              "type": "boolean"
             }
           ]
         },
+        "includeOtherFields": false,
         "options": {}
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        1312,
+        1320,
         0
       ],
-      "id": "dc7ed57a-8f74-4bed-8558-50ad458a6ef8",
-      "name": "Edit Fields"
+      "id": "build-unique-caller-context",
+      "name": "Build Unique Caller Context"
     },
     {
       "parameters": {
@@ -200,104 +288,71 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1536,
+        1580,
         0
       ],
-      "id": "734c7642-13a8-48b8-9067-d60af2ccd659",
-      "name": "Respond to Webhook"
+      "id": "respond-with-unique-context",
+      "name": "Respond with Unique Context"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "aa32a49e-0e5f-488b-bcf8-d1e3fb7dd5cf",
+              "id": "not-found-conversation-id",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}",
               "type": "string"
             },
             {
-              "id": "ed7c69b8-5547-4378-a474-e6f6a6f9b29f",
+              "id": "not-found-match-status",
               "name": "match_status",
-              "value": "={{ $json.status }}",
+              "value": "not_found",
               "type": "string"
             },
             {
-              "id": "4494a78b-e9c2-48d2-a62a-da277117540c",
-              "name": "customer",
-              "value": "=",
-              "type": "array"
-            },
-            {
-              "id": "399739c9-c17c-414b-966d-8b6e904802d4",
-              "name": "",
-              "value": "",
-              "type": "string"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        752,
-        -320
-      ],
-      "id": "6bebe42d-e828-465b-b311-a333d1c60b43",
-      "name": "Edit Fields1"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
-        "options": {
-          "responseCode": 200
-        }
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        1040,
-        -320
-      ],
-      "id": "c3cda24e-113e-45f1-9569-845b0bb46723",
-      "name": "Respond to Webhook1"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "792d7ffa-9fc5-4d50-8f18-c123483c87d1",
-              "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
-              "type": "string"
-            },
-            {
-              "id": "7b83e6ea-2a7c-40e8-ba8a-47100f283538",
-              "name": "match_status",
-              "value": "={{ $('HTTP Request').item.json.status }}",
-              "type": "string"
-            },
-            {
-              "id": "dca4d3d0-bac8-47d6-8947-4ddb6c22ce22",
+              "id": "not-found-customers",
               "name": "customers",
-              "value": "={{\n  $('HTTP Request').item.json.customers.map(customer => ({\n    id: customer.id,\n    first_name: customer.first_name,\n    last_name: customer.last_name,\n    phone_number: customer.phone\n  }))\n}}",
+              "value": "={{ [] }}",
               "type": "array"
+            },
+            {
+              "id": "not-found-customer",
+              "name": "customer",
+              "value": "={{ null }}",
+              "type": "object"
+            },
+            {
+              "id": "not-found-property",
+              "name": "property",
+              "value": "={{ null }}",
+              "type": "object"
+            },
+            {
+              "id": "not-found-open-tickets",
+              "name": "open_tickets",
+              "value": "={{ [] }}",
+              "type": "array"
+            },
+            {
+              "id": "not-found-temporary-fallback",
+              "name": "temporary_fallback",
+              "value": false,
+              "type": "boolean"
             }
           ]
         },
+        "includeOtherFields": false,
         "options": {}
       },
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        752,
-        288
+        800,
+        -360
       ],
-      "id": "fc896fb9-74e7-4794-87fc-e67d2dd62cd0",
-      "name": "Edit Fields2"
+      "id": "build-unknown-caller-context",
+      "name": "Build Unknown Caller Context"
     },
     {
       "parameters": {
@@ -310,110 +365,291 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1040,
-        288
+        1060,
+        -360
       ],
-      "id": "1bb8d8b7-4998-4395-a806-01d2a2a19e6a",
-      "name": "Respond to Webhook2"
+      "id": "respond-with-unknown-context",
+      "name": "Respond with Unknown Context"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ambiguous-conversation-id",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "ambiguous-match-status",
+              "name": "match_status",
+              "value": "ambiguous",
+              "type": "string"
+            },
+            {
+              "id": "ambiguous-identity-choices",
+              "name": "identity_choices",
+              "value": "={{ $('Lookup Caller by Phone').first().json.customers.map(customer => ({ id: customer.id, first_name: customer.first_name, last_name: customer.last_name, phone: customer.phone })) }}",
+              "type": "array"
+            },
+            {
+              "id": "ambiguous-temporary-fallback",
+              "name": "temporary_fallback",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        800,
+        360
+      ],
+      "id": "build-ambiguous-caller-choices",
+      "name": "Build Ambiguous Caller Choices"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1060,
+        360
+      ],
+      "id": "respond-with-identity-choices",
+      "name": "Respond with Identity Choices"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "fallback-conversation-id",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Caller Context Request').first().json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "fallback-match-status",
+              "name": "match_status",
+              "value": "temporarily_unavailable",
+              "type": "string"
+            },
+            {
+              "id": "fallback-customers",
+              "name": "customers",
+              "value": "={{ [] }}",
+              "type": "array"
+            },
+            {
+              "id": "fallback-customer",
+              "name": "customer",
+              "value": "={{ null }}",
+              "type": "object"
+            },
+            {
+              "id": "fallback-property",
+              "name": "property",
+              "value": "={{ null }}",
+              "type": "object"
+            },
+            {
+              "id": "fallback-open-tickets",
+              "name": "open_tickets",
+              "value": "={{ [] }}",
+              "type": "array"
+            },
+            {
+              "id": "fallback-temporary-fallback",
+              "name": "temporary_fallback",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "fallback-message",
+              "name": "message",
+              "value": "Caller context is temporarily unavailable. Continue without customer-specific details.",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": false,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1060,
+        640
+      ],
+      "id": "build-temporary-fallback-context",
+      "name": "Build Temporary Fallback Context"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1320,
+        640
+      ],
+      "id": "respond-with-temporary-fallback",
+      "name": "Respond with Temporary Fallback"
     }
   ],
   "connections": {
-    "Webhook": {
+    "Receive Caller Context Request": {
       "main": [
         [
           {
-            "node": "HTTP Request",
+            "node": "Lookup Caller by Phone",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request": {
+    "Lookup Caller by Phone": {
       "main": [
         [
           {
-            "node": "Switch",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Switch": {
-      "main": [
-        [
-          {
-            "node": "Edit Fields1",
+            "node": "Route Caller Match Status",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "HTTP Request2",
+            "node": "Build Temporary Fallback Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Caller Match Status": {
+      "main": [
+        [
+          {
+            "node": "Build Unknown Caller Context",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Edit Fields2",
+            "node": "Load Matched Property",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Ambiguous Caller Choices",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Temporary Fallback Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request2": {
+    "Load Matched Property": {
       "main": [
         [
           {
-            "node": "HTTP Request3",
+            "node": "Load Open Tickets",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Temporary Fallback Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "HTTP Request3": {
+    "Load Open Tickets": {
       "main": [
         [
           {
-            "node": "Edit Fields",
+            "node": "Build Unique Caller Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Temporary Fallback Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Edit Fields": {
+    "Build Unique Caller Context": {
       "main": [
         [
           {
-            "node": "Respond to Webhook",
+            "node": "Respond with Unique Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Edit Fields1": {
+    "Build Unknown Caller Context": {
       "main": [
         [
           {
-            "node": "Respond to Webhook1",
+            "node": "Respond with Unknown Context",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Edit Fields2": {
+    "Build Ambiguous Caller Choices": {
       "main": [
         [
           {
-            "node": "Respond to Webhook2",
+            "node": "Respond with Identity Choices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Temporary Fallback Context": {
+      "main": [
+        [
+          {
+            "node": "Respond with Temporary Fallback",
             "type": "main",
             "index": 0
           }
@@ -421,8 +657,5 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {
-    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
-  }
+  "pinData": {}
 }

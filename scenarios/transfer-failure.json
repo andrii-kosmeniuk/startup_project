@@ -1,0 +1,10 @@
+{
+  "event_id": "event-transfer-failure-001",
+  "conversation_id": "conversation-transfer-failure-001",
+  "customer_id": "customer-lukas-huber",
+  "property_id": "property-landstrasser-42",
+  "intent": "emergency",
+  "category": "water_leak",
+  "description": "A burst pipe is flooding the apartment and the emergency contact is unavailable.",
+  "severity": "critical"
+}

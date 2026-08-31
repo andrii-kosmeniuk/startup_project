@@ -1,0 +1,10 @@
+{
+  "event_id": "event-existing-ticket-001",
+  "conversation_id": "conversation-existing-ticket-001",
+  "customer_id": "customer-anna-mueller",
+  "property_id": "property-neubaugasse-17",
+  "intent": "maintenance",
+  "category": "heating",
+  "description": "The heating is still not working and I am calling for an update.",
+  "severity": "normal"
+}

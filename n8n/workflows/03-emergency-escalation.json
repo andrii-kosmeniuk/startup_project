@@ -1,9 +1,10 @@
 {
+  "name": "Emergency Escalation",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "8cbf98be-8bc2-4a9e-92b6-654f02f0037f",
+        "path": "emergency-escalation",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -14,22 +15,138 @@
         0
       ],
       "id": "17515a30-7b71-4e5d-b653-f5fa5939338d",
-      "name": "Webhook",
+      "name": "Receive Emergency Escalation",
       "webhookId": "8cbf98be-8bc2-4a9e-92b6-654f02f0037f"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/properties/{{ $json.body.property_id }}/emergency-contact",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "d09ac935-9a26-4ff7-bc73-648df1aa459a",
+              "name": "event_id",
+              "value": "={{ $json.body.event_id }}",
+              "type": "string"
+            },
+            {
+              "id": "046d6e8c-08cf-4de7-b483-e3bb5b70d93f",
+              "name": "conversation_id",
+              "value": "={{ $json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "7e54591c-943c-4461-8649-a0e3cf6ee1e4",
+              "name": "customer_id",
+              "value": "={{ $json.body.customer_id }}",
+              "type": "string"
+            },
+            {
+              "id": "aaf9c39a-077a-484b-b0e6-0879cd8a16e4",
+              "name": "property_id",
+              "value": "={{ $json.body.property_id }}",
+              "type": "string"
+            },
+            {
+              "id": "2c9f35d1-c069-41e5-b9fe-9eea20c06f2a",
+              "name": "category",
+              "value": "={{ $json.body.category }}",
+              "type": "string"
+            },
+            {
+              "id": "7b2ac102-15e9-4199-9384-92929931dab9",
+              "name": "description",
+              "value": "={{ $json.body.description }}",
+              "type": "string"
+            },
+            {
+              "id": "19bc50b8-41c4-4ea1-94d2-aa661f831877",
+              "name": "transfer_success",
+              "value": "={{ $json.body.transfer_success === true }}",
+              "type": "boolean"
+            }
+          ]
+        },
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
       "position": [
         224,
         0
       ],
+      "id": "973ade76-c53f-4f6b-a702-a814417d15e2",
+      "name": "Capture Emergency Request"
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "=http://api:8000/properties/{{ $json.property_id }}/emergency-contact",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        448,
+        0
+      ],
       "id": "95d5b46b-e15e-4529-ba30-fb7089eb3510",
-      "name": "Get Emergency Contact"
+      "name": "Get Emergency Contact",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "707492b0-30a7-47d6-b768-d5ed7a22e57c",
+              "leftValue": "={{ $json.available }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        672,
+        -64
+      ],
+      "id": "d2b63020-31f7-4120-9f87-814b72e41437",
+      "name": "Emergency Contact Available?"
     },
     {
       "parameters": {
@@ -44,7 +161,7 @@
             {
               "id": "d8cfad7d-d7e6-4d4c-8a37-16ba4d6ad98a",
               "name": "transfer_success",
-              "value": true,
+              "value": "={{ $('Capture Emergency Request').item.json.transfer_success }}",
               "type": "boolean"
             }
           ]
@@ -54,11 +171,11 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        480,
-        0
+        896,
+        -192
       ],
       "id": "c7cfa786-b449-4ff1-bef6-366dddd7daed",
-      "name": "Simulate Transfer"
+      "name": "Simulate Input-Driven Transfer"
     },
     {
       "parameters": {
@@ -88,29 +205,56 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        736,
-        0
+        1120,
+        -192
       ],
       "id": "d7d17182-77d0-41b7-9662-d6b098cc56af",
-      "name": "Transfer Successful?"
+      "name": "Simulated Transfer Successful?"
     },
     {
       "parameters": {
         "method": "POST",
         "url": "http://api:8000/call-outcomes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}"
+            },
+            {
+              "name": "X-Event-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.event_id.slice(0, 75) + ':success-outcome' }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Webhook').item.json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"intent\": \"emergency\",\n  \"summary\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"transfer_attempted\": true,\n  \"transfer_success\": true,\n  \"follow_up_required\": false\n}",
-        "options": {}
+        "jsonBody": "={{ { conversation_id: $('Capture Emergency Request').item.json.conversation_id, customer_id: $('Capture Emergency Request').item.json.customer_id, intent: 'emergency', summary: $('Capture Emergency Request').item.json.description, transfer_attempted: true, transfer_success: true, follow_up_required: false } }}",
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        960,
-        -176
+        1344,
+        -304
       ],
       "id": "efec5eb3-d7db-4973-8cba-aa8af1ce63f4",
-      "name": "Save Successful Outcome"
+      "name": "Save Successful Call Outcome",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -125,7 +269,7 @@
             {
               "id": "3cf912a6-f9f8-4ad7-8ecd-67dda1b322b6",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}",
               "type": "string"
             },
             {
@@ -145,6 +289,12 @@
               "name": "follow_up_required",
               "value": false,
               "type": "boolean"
+            },
+            {
+              "id": "c03e267a-5416-46d6-88e5-8764a6662e2a",
+              "name": "notification_sent",
+              "value": false,
+              "type": "boolean"
             }
           ]
         },
@@ -153,52 +303,110 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        1184,
-        -176
+        1568,
+        -304
       ],
       "id": "2632182a-ccf9-42db-bbc2-8977462bf439",
-      "name": "Build Success Response"
+      "name": "Build Successful Transfer Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1792,
+        -304
+      ],
+      "id": "55927e6f-4d73-45d3-a4d2-cd51c2e847b0",
+      "name": "Respond With Transfer Success"
     },
     {
       "parameters": {
         "method": "POST",
         "url": "http://api:8000/tickets",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
-              "name": "Content-Type",
-              "value": "application/json"
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}"
+            },
+            {
+              "name": "X-Event-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.event_id.slice(0, 75) + ':critical-ticket' }}"
             }
           ]
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"property_id\": \"{{ $('Webhook').item.json.body.property_id }}\",\n  \"category\": \"{{ $('Webhook').item.json.body.category }}\",\n  \"description\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"priority\": \"critical\"\n}",
-        "options": {}
+        "jsonBody": "={{ { customer_id: $('Capture Emergency Request').item.json.customer_id, property_id: $('Capture Emergency Request').item.json.property_id, category: $('Capture Emergency Request').item.json.category, description: $('Capture Emergency Request').item.json.description, priority: 'critical' } }}",
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        960,
-        80
+        1344,
+        48
       ],
       "id": "b00e465d-8521-43bd-b46f-177b2d04c4ab",
-      "name": "Create Critical Ticket"
+      "name": "Create Critical Fallback Ticket",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
-        "url": "=http://api:8000/properties/{{ $json.property_id }}/manager",
-        "options": {}
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "url": "=http://api:8000/properties/{{ $('Capture Emergency Request').item.json.property_id }}/manager",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1184,
-        80
+        1568,
+        48
       ],
       "id": "99b29ee3-6a71-4a9b-8f04-586cbd41faed",
-      "name": "Get Property Manager"
+      "name": "Get Property Manager",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -217,29 +425,79 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        1408,
-        80
+        1792,
+        -16
       ],
       "id": "95042934-62c7-4533-a34d-1e2cbddd8da7",
       "name": "Simulate Manager Notification"
     },
     {
       "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cf1a54c-03ed-453c-a1d0-7e693651bc45",
+              "name": "notification_sent",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1792,
+        112
+      ],
+      "id": "75ef02c1-887a-461b-9e0c-3e4d56b31ed1",
+      "name": "Record Manager Notification Failure"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://api:8000/call-outcomes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}"
+            },
+            {
+              "name": "X-Event-ID",
+              "value": "={{ $('Capture Emergency Request').item.json.event_id.slice(0, 75) + ':fallback-outcome' }}"
+            }
+          ]
+        },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"conversation_id\": \"{{ $('Webhook').item.json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $('Webhook').item.json.body.customer_id }}\",\n  \"intent\": \"emergency\",\n  \"summary\": \"{{ $('Webhook').item.json.body.description }}\",\n  \"ticket_id\": \"{{ $('Create Critical Ticket').item.json.id }}\",\n  \"transfer_attempted\": true,\n  \"transfer_success\": false,\n  \"follow_up_required\": true\n}",
-        "options": {}
+        "jsonBody": "={{ { conversation_id: $('Capture Emergency Request').item.json.conversation_id, customer_id: $('Capture Emergency Request').item.json.customer_id, intent: 'emergency', summary: $('Capture Emergency Request').item.json.description, ticket_id: $('Create Critical Fallback Ticket').item.json.id, transfer_attempted: $('Simulate Input-Driven Transfer').isExecuted, transfer_success: false, follow_up_required: true } }}",
+        "options": {
+          "timeout": 5000
+        }
       },
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.5,
       "position": [
-        1632,
-        80
+        2016,
+        48
       ],
       "id": "fb8363c8-a940-43b5-84fc-7b80f89b6259",
-      "name": "Save Fallback Outcome"
+      "name": "Save Failed Call Outcome",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueErrorOutput"
     },
     {
       "parameters": {
@@ -254,8 +512,14 @@
             {
               "id": "65c9528e-1d08-416c-813b-f06e048e336a",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}",
               "type": "string"
+            },
+            {
+              "id": "b7d98770-ed25-41ca-8bd8-6d98cb02858e",
+              "name": "transfer_attempted",
+              "value": "={{ $('Simulate Input-Driven Transfer').isExecuted }}",
+              "type": "boolean"
             },
             {
               "id": "70eaeb5b-878f-4331-b652-6fc73c93ea73",
@@ -266,7 +530,7 @@
             {
               "id": "7cd197f5-c5ca-45c3-be97-bf1ca526cdd8",
               "name": "notification_sent",
-              "value": true,
+              "value": "={{ $('Simulate Manager Notification').isExecuted }}",
               "type": "boolean"
             },
             {
@@ -278,7 +542,7 @@
             {
               "id": "ad1d50ce-c8ea-4ed3-ba97-d5536bff7169",
               "name": "ticket",
-              "value": "={{\n  {\n    id: $('Create Critical Ticket').item.json.id,\n    category: $('Create Critical Ticket').item.json.category,\n    priority: $('Create Critical Ticket').item.json.priority,\n    status: $('Create Critical Ticket').item.json.status\n  }\n}}",
+              "value": "={{ { id: $('Create Critical Fallback Ticket').item.json.id, category: $('Create Critical Fallback Ticket').item.json.category, priority: $('Create Critical Fallback Ticket').item.json.priority, status: $('Create Critical Fallback Ticket').item.json.status } }}",
               "type": "object"
             }
           ]
@@ -288,11 +552,11 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        1856,
-        80
+        2240,
+        48
       ],
       "id": "eae16cb9-afdf-42f4-9df3-936abcb16492",
-      "name": "Build Fallback Response"
+      "name": "Build Emergency Fallback Response"
     },
     {
       "parameters": {
@@ -305,32 +569,90 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
-        1408,
-        -176
-      ],
-      "id": "55927e6f-4d73-45d3-a4d2-cd51c2e847b0",
-      "name": "Respond Success"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
-        "options": {
-          "responseCode": 200
-        }
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        2080,
-        80
+        2464,
+        48
       ],
       "id": "68563cae-d749-48e9-b0c7-e4fc8379e95d",
-      "name": "Respond Fallback"
+      "name": "Respond With Emergency Fallback"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8ae68965-c261-4f55-9986-1c16885c4dfb",
+              "name": "action",
+              "value": "temporary_failure",
+              "type": "string"
+            },
+            {
+              "id": "6f94b121-ac7d-4de6-998d-fd59394dc1de",
+              "name": "conversation_id",
+              "value": "={{ $('Capture Emergency Request').item.json.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "51931827-214d-4bf3-a8e7-30ed4133b564",
+              "name": "message",
+              "value": "Emergency escalation could not be persisted. Please retry.",
+              "type": "string"
+            },
+            {
+              "id": "5d60e91e-0348-4752-84e4-a70f238d1b0a",
+              "name": "notification_sent",
+              "value": "={{ $('Simulate Manager Notification').isExecuted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "1a256a15-e0f9-4a28-bd49-f2a696551159",
+              "name": "follow_up_required",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2016,
+        256
+      ],
+      "id": "1f90cbd9-8d59-4ca5-97eb-69e9e8e19f24",
+      "name": "Build Safe Backend Failure Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2240,
+        256
+      ],
+      "id": "a54d93b7-af95-4cd1-813d-2cb1c3159cbd",
+      "name": "Respond With Safe Backend Failure"
     }
   ],
   "connections": {
-    "Webhook": {
+    "Receive Emergency Escalation": {
+      "main": [
+        [
+          {
+            "node": "Capture Emergency Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Capture Emergency Request": {
       "main": [
         [
           {
@@ -345,69 +667,108 @@
       "main": [
         [
           {
-            "node": "Simulate Transfer",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Simulate Transfer": {
-      "main": [
-        [
-          {
-            "node": "Transfer Successful?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Transfer Successful?": {
-      "main": [
-        [
-          {
-            "node": "Save Successful Outcome",
+            "node": "Emergency Contact Available?",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Create Critical Ticket",
+            "node": "Create Critical Fallback Ticket",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Save Successful Outcome": {
+    "Emergency Contact Available?": {
       "main": [
         [
           {
-            "node": "Build Success Response",
+            "node": "Simulate Input-Driven Transfer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Critical Fallback Ticket",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Success Response": {
+    "Simulate Input-Driven Transfer": {
       "main": [
         [
           {
-            "node": "Respond Success",
+            "node": "Simulated Transfer Successful?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Create Critical Ticket": {
+    "Simulated Transfer Successful?": {
+      "main": [
+        [
+          {
+            "node": "Save Successful Call Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Critical Fallback Ticket",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Successful Call Outcome": {
+      "main": [
+        [
+          {
+            "node": "Build Successful Transfer Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Safe Backend Failure Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Successful Transfer Response": {
+      "main": [
+        [
+          {
+            "node": "Respond With Transfer Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Critical Fallback Ticket": {
       "main": [
         [
           {
             "node": "Get Property Manager",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Safe Backend Failure Response",
             "type": "main",
             "index": 0
           }
@@ -422,6 +783,13 @@
             "type": "main",
             "index": 0
           }
+        ],
+        [
+          {
+            "node": "Record Manager Notification Failure",
+            "type": "main",
+            "index": 0
+          }
         ]
       ]
     },
@@ -429,29 +797,58 @@
       "main": [
         [
           {
-            "node": "Save Fallback Outcome",
+            "node": "Save Failed Call Outcome",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Save Fallback Outcome": {
+    "Record Manager Notification Failure": {
       "main": [
         [
           {
-            "node": "Build Fallback Response",
+            "node": "Save Failed Call Outcome",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Fallback Response": {
+    "Save Failed Call Outcome": {
       "main": [
         [
           {
-            "node": "Respond Fallback",
+            "node": "Build Emergency Fallback Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Safe Backend Failure Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Emergency Fallback Response": {
+      "main": [
+        [
+          {
+            "node": "Respond With Emergency Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Safe Backend Failure Response": {
+      "main": [
+        [
+          {
+            "node": "Respond With Safe Backend Failure",
             "type": "main",
             "index": 0
           }
@@ -459,8 +856,9 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {
-    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
-  }
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
 }

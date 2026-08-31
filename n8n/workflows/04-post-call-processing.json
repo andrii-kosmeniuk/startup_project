@@ -1,9 +1,10 @@
 {
+  "name": "Fonio Post-call Processing",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "25111998-105f-4fe0-88e2-a1c7e70df832",
+        "path": "fonio-post-call-processing",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -13,9 +14,61 @@
         0,
         0
       ],
-      "id": "9ad319c6-fad8-4616-8ab4-8432b0221dbd",
-      "name": "Webhook",
-      "webhookId": "25111998-105f-4fe0-88e2-a1c7e70df832"
+      "id": "6b3605d2-2451-443c-9c5f-1269ca675d9d",
+      "name": "Receive Post-call Event",
+      "webhookId": "fonio-post-call-processing"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/call-outcomes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}"
+            },
+            {
+              "name": "X-Event-ID",
+              "value": "={{ String($('Receive Post-call Event').item.json.body.event_id).slice(0, 89) + ':post-call' }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const body = $('Receive Post-call Event').item.json.body; return { conversation_id: body.conversation_id, ...(body.customer_id ? { customer_id: body.customer_id } : {}), intent: body.intent, summary: body.summary, ...(body.ticket_id ? { ticket_id: body.ticket_id } : {}), transfer_attempted: body.transfer_attempted, transfer_success: body.transfer_success, follow_up_required: body.follow_up_required }; })() }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 5000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        240,
+        0
+      ],
+      "id": "81235720-c1ec-4c02-a62d-afb60fa5344c",
+      "name": "Save Call Outcome",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -28,9 +81,9 @@
           },
           "conditions": [
             {
-              "id": "a4cca197-7af5-47af-a8d2-e69a7dbd06b6",
-              "leftValue": "={{ $json.follow_up_required }}",
-              "rightValue": false,
+              "id": "b600654c-d617-42e7-8f7b-a9ac8fbeb004",
+              "leftValue": "={{ Number($json.statusCode) >= 200 && Number($json.statusCode) < 300 }}",
+              "rightValue": true,
               "operator": {
                 "type": "boolean",
                 "operation": "true",
@@ -45,94 +98,206 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.3,
       "position": [
-        448,
+        480,
         0
       ],
-      "id": "624f1c20-839f-4718-98fa-08d96fcfde47",
-      "name": "If"
+      "id": "0cf43c3d-db1d-4f82-92d9-3ac54f885a30",
+      "name": "Outcome Saved?"
     },
     {
       "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8bc0dd95-79ec-4656-a17f-d4495070a901",
+              "leftValue": "={{ String($json.headers?.['x-idempotent-replay'] ?? $json.headers?.['X-Idempotent-Replay'] ?? '').toLowerCase() === 'true' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        720,
+        -120
+      ],
+      "id": "78d8f547-d0c2-4033-a740-60bd825585bf",
+      "name": "Outcome Replayed?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "dfc6e777-3131-499f-9107-68e217cc7465",
+              "leftValue": "={{ $('Receive Post-call Event').item.json.body.follow_up_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        960,
+        0
+      ],
+      "id": "369050e2-3b55-4812-92ed-55ee16c91d34",
+      "name": "Follow-up Required?"
+    },
+    {
+      "parameters": {
+        "url": "=http://api:8000/properties/{{ encodeURIComponent($('Receive Post-call Event').item.json.body.property_id) }}/manager",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Conversation-ID",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}"
+            }
+          ]
+        },
         "options": {
-          "responseCode": 200
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 5000
         }
       },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
       "position": [
-        896,
-        96
+        1200,
+        -120
       ],
-      "id": "0add57aa-1bb2-49cf-bf27-6a994b94a394",
-      "name": "Respond to Webhook"
+      "id": "e86c9804-4adf-4919-8223-956385c5cfb3",
+      "name": "Get Property Manager",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fonio-fastapi-api-key",
+          "name": "Fonio FastAPI API Key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 250,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5868c82b-8115-4a7a-8666-e6fcf11b0f61",
+              "leftValue": "={{ Number($json.statusCode) >= 200 && Number($json.statusCode) < 300 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1440,
+        -120
+      ],
+      "id": "facbc892-023f-440f-b630-290f3ab26a78",
+      "name": "Manager Lookup Succeeded?"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "54f57711-9fe6-4176-8039-c37779de5138",
+              "id": "d60335fc-5791-4b68-807f-f2c51a01eef0",
               "name": "action",
-              "value": "=follow_up_created",
+              "value": "follow_up_created",
               "type": "string"
             },
             {
-              "id": "02a3a252-9f29-49bd-9119-e10731eb1500",
+              "id": "d6c70793-c8b8-4e73-9f43-02fe12d5ec13",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}",
               "type": "string"
             },
             {
-              "id": "5151fc11-55fb-4a7a-b753-303604fbfbec",
+              "id": "9af5f216-7fc7-4837-94b9-ec755c4dc4a9",
               "name": "ticket_id",
-              "value": "={{ $('Webhook').item.json.body.ticket_id }}",
+              "value": "={{ $('Receive Post-call Event').item.json.body.ticket_id ?? null }}",
               "type": "string"
             },
             {
-              "id": "f76b6193-3b24-4c63-a151-a6fc3f8a310f",
+              "id": "5697518f-30fc-4b63-bba5-13fd728206a6",
+              "name": "transfer_attempted",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_attempted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "320a1312-86ba-4c23-8a07-a15d1f4b2106",
+              "name": "transfer_success",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "6e7f5c77-cde4-4da9-9687-9eaf90e53b3f",
               "name": "follow_up_required",
-              "value": "={{ $('Webhook').item.json.body.follow_up_required }}",
+              "value": true,
               "type": "boolean"
             },
             {
-              "id": "72b7cc3d-8f92-44b9-a41e-7cf422622858",
-              "name": "follow_up_created",
-              "value": "={{ $json.follow_up_created }}",
-              "type": "boolean"
-            },
-            {
-              "id": "60c02700-51ab-4324-bde5-015358e79994",
-              "name": "notification_sent",
-              "value": "={{ $json.notification_sent }}",
-              "type": "boolean"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.5,
-      "position": [
-        896,
-        -96
-      ],
-      "id": "64fe8bce-59be-4078-8176-4a75b690fd96",
-      "name": "Build Follow-up Response"
-    },
-    {
-      "parameters": {
-        "assignments": {
-          "assignments": [
-            {
-              "id": "8aa7dcd0-c7b8-4898-966c-9ea9b42d371d",
+              "id": "367918a7-2fe8-4c8f-a3dd-1ab73a814bd5",
               "name": "follow_up_created",
               "value": true,
               "type": "boolean"
             },
             {
-              "id": "ee66e9f3-dc0c-48f3-be7a-1c20db652b19",
+              "id": "b330c965-1c65-4555-a74d-4a39202e714d",
               "name": "notification_sent",
               "value": true,
               "type": "boolean"
@@ -144,49 +309,121 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        672,
-        -96
+        1680,
+        -240
       ],
-      "id": "9afe1043-aab9-4efa-80b4-6137c1ab13e8",
-      "name": "Simulate Follow-up"
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
-        "options": {
-          "responseCode": 200
-        }
-      },
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        1088,
-        -96
-      ],
-      "id": "5bff1132-aafd-4f65-821c-832a92ed5bab",
-      "name": "Respond to Webhook1"
+      "id": "2cb4849d-bb92-4412-96d3-3186e0fbd949",
+      "name": "Simulate Notification and Follow-up"
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
             {
-              "id": "19245c54-be60-42f0-ba78-01810b896c55",
+              "id": "811e5ead-80ea-47e4-916e-25a76d67d4ac",
+              "name": "action",
+              "value": "follow_up_pending",
+              "type": "string"
+            },
+            {
+              "id": "dd2cc3c9-a270-420e-b961-d7c2c593f0db",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "eb6b603c-af59-4276-a982-b0ff76d31b40",
+              "name": "ticket_id",
+              "value": "={{ $('Receive Post-call Event').item.json.body.ticket_id ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "f2977f15-1fa2-4e63-be6a-77252979bf95",
+              "name": "transfer_attempted",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_attempted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "42683a92-d2a6-4fd8-99ff-0107534cc8df",
+              "name": "transfer_success",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "5bcaf1e2-4bf2-4f86-9384-93e4ad3e09b5",
+              "name": "follow_up_required",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "264128cf-a36c-4115-83d4-cf57142b4059",
+              "name": "follow_up_created",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "2cc132ea-b745-4a47-8649-19ad367a6a8a",
+              "name": "notification_sent",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        1680,
+        0
+      ],
+      "id": "fb6a4283-f43c-4d42-aeb2-333b8732cc52",
+      "name": "Build Manager Failure Response"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "49184729-db0a-4e9b-b5e6-24637374b045",
               "name": "action",
               "value": "completed",
               "type": "string"
             },
             {
-              "id": "02e146ea-f7bf-4c43-9b6c-0a8d0f5579e9",
+              "id": "6068544d-513f-4e77-a1e5-177455319aed",
               "name": "conversation_id",
-              "value": "={{ $('Webhook').item.json.body.conversation_id }}",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}",
               "type": "string"
             },
             {
-              "id": "3c76f00b-f4db-489a-af65-76a1070c7ca0",
+              "id": "baf563d2-26af-4b66-85ce-fd2278e90299",
+              "name": "transfer_attempted",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_attempted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "7063f6f1-ffb9-494c-8478-b856cf1d31ca",
+              "name": "transfer_success",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "9e81d23e-1179-4df1-8785-8d426eaa5ba6",
               "name": "follow_up_required",
-              "value": "={{ $('Webhook').item.json.body.follow_up_required }}",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "091ba705-7f72-4321-a0c8-8762a4524b73",
+              "name": "follow_up_created",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "199c9af6-c06f-4029-a7f2-1384883841c2",
+              "name": "notification_sent",
+              "value": false,
               "type": "boolean"
             }
           ]
@@ -196,48 +433,229 @@
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.5,
       "position": [
-        672,
-        96
+        1200,
+        120
       ],
-      "id": "0452a308-415f-48c6-b346-130052cc5d0b",
+      "id": "04f8594b-8dc6-42d6-a3ce-1916108a270f",
       "name": "Build Completed Response"
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "http://api:8000/call-outcomes",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"conversation_id\": \"{{ $json.body.conversation_id }}\",\n  \"customer_id\": \"{{ $json.body.customer_id }}\",\n  \"intent\": \"{{ $json.body.intent }}\",\n  \"summary\": \"{{ $json.body.summary }}\",\n  \"ticket_id\": \"{{ $json.body.ticket_id }}\",\n  \"transfer_attempted\": {{ $json.body.transfer_attempted }},\n  \"transfer_success\": {{ $json.body.transfer_success }},\n  \"follow_up_required\": {{ $json.body.follow_up_required }}\n} ",
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5753e886-b74c-4cc7-848b-7a4f628f48a3",
+              "name": "action",
+              "value": "already_processed",
+              "type": "string"
+            },
+            {
+              "id": "efbbf0a7-ee28-4462-b791-ee4996a608d9",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f214053c-7dfa-44bd-ac6a-379015be4725",
+              "name": "transfer_attempted",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_attempted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "86f3b971-e16c-4617-a547-6e740e601f5b",
+              "name": "transfer_success",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "ec49de51-e8a6-4236-a367-7423d80dcf23",
+              "name": "follow_up_required",
+              "value": "={{ $('Receive Post-call Event').item.json.body.follow_up_required }}",
+              "type": "boolean"
+            },
+            {
+              "id": "7130dc4d-b84e-49ed-99f5-c2231ff50376",
+              "name": "notification_sent",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "98ad7144-e2b2-4797-9591-1bead6df5053",
+              "name": "side_effects_skipped",
+              "value": true,
+              "type": "boolean"
+            }
+          ]
+        },
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.5,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
       "position": [
-        224,
-        0
+        960,
+        -240
       ],
-      "id": "3980926f-46de-4321-938f-2f1c9faa2bfd",
-      "name": "POST /call-outcomes"
+      "id": "da493daa-cff0-45a1-baff-397a2f2b529e",
+      "name": "Build Replay Response"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2a4cbf6b-0774-4985-bfbd-90e23ead6a12",
+              "name": "action",
+              "value": "outcome_save_failed",
+              "type": "string"
+            },
+            {
+              "id": "94b39a5c-b42d-4d72-afb1-8f2cae505b34",
+              "name": "conversation_id",
+              "value": "={{ $('Receive Post-call Event').item.json.body.conversation_id }}",
+              "type": "string"
+            },
+            {
+              "id": "fd4fe65b-cf61-4514-9869-944cd97be3b0",
+              "name": "transfer_attempted",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_attempted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "35e13dd4-e647-4419-86bc-80148440ea48",
+              "name": "transfer_success",
+              "value": "={{ $('Receive Post-call Event').item.json.body.transfer_success }}",
+              "type": "boolean"
+            },
+            {
+              "id": "c7929081-aed0-4dd8-b916-7375b7152322",
+              "name": "follow_up_required",
+              "value": "={{ $('Receive Post-call Event').item.json.body.follow_up_required }}",
+              "type": "boolean"
+            },
+            {
+              "id": "e961065a-cff2-405f-a7c5-133ef12a5f14",
+              "name": "notification_sent",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "bb10f02f-4417-4cac-af61-6fb337ad64a0",
+              "name": "error",
+              "value": "={{ { status_code: $json.statusCode ?? null, details: $json.body ?? $json.error ?? 'Call outcome request failed' } }}",
+              "type": "object"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        720,
+        240
+      ],
+      "id": "12cda82a-819e-4bd3-bd9b-d1483e928798",
+      "name": "Build Outcome Error Response"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1920,
+        -120
+      ],
+      "id": "68007591-a4ec-48b3-8922-b5ab0d7e7c66",
+      "name": "Respond Post-call Completed"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 502
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        960,
+        240
+      ],
+      "id": "e737464a-4e91-4a9a-bda0-b3a5f91831d5",
+      "name": "Respond Outcome Save Failed"
     }
   ],
   "connections": {
-    "Webhook": {
+    "Receive Post-call Event": {
       "main": [
         [
           {
-            "node": "POST /call-outcomes",
+            "node": "Save Call Outcome",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "If": {
+    "Save Call Outcome": {
       "main": [
         [
           {
-            "node": "Simulate Follow-up",
+            "node": "Outcome Saved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome Saved?": {
+      "main": [
+        [
+          {
+            "node": "Outcome Replayed?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Outcome Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outcome Replayed?": {
+      "main": [
+        [
+          {
+            "node": "Build Replay Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Follow-up Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up Required?": {
+      "main": [
+        [
+          {
+            "node": "Get Property Manager",
             "type": "main",
             "index": 0
           }
@@ -251,22 +669,51 @@
         ]
       ]
     },
-    "Build Follow-up Response": {
+    "Get Property Manager": {
       "main": [
         [
           {
-            "node": "Respond to Webhook1",
+            "node": "Manager Lookup Succeeded?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Simulate Follow-up": {
+    "Manager Lookup Succeeded?": {
       "main": [
         [
           {
-            "node": "Build Follow-up Response",
+            "node": "Simulate Notification and Follow-up",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Manager Failure Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simulate Notification and Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Respond Post-call Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Manager Failure Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Post-call Completed",
             "type": "main",
             "index": 0
           }
@@ -277,18 +724,29 @@
       "main": [
         [
           {
-            "node": "Respond to Webhook",
+            "node": "Respond Post-call Completed",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "POST /call-outcomes": {
+    "Build Replay Response": {
       "main": [
         [
           {
-            "node": "If",
+            "node": "Respond Post-call Completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Outcome Error Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Outcome Save Failed",
             "type": "main",
             "index": 0
           }
@@ -296,8 +754,9 @@
       ]
     }
   },
-  "pinData": {},
-  "meta": {
-    "instanceId": "ec2b8155a878f43ed8e0e10524e65b3aab3d2200b84089d235d00468b49bc2a8"
-  }
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {}
 }

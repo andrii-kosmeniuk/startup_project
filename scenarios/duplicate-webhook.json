@@ -1,0 +1,25 @@
+{
+  "scenario": "Deliver the same maintenance webhook twice; only one side effect may occur.",
+  "deliveries": [
+    {
+      "event_id": "event-duplicate-webhook-001",
+      "conversation_id": "conversation-duplicate-webhook-001",
+      "customer_id": "customer-lukas-huber",
+      "property_id": "property-landstrasser-42",
+      "intent": "maintenance",
+      "category": "electrical",
+      "description": "The hallway light is flickering and switches off intermittently.",
+      "severity": "normal"
+    },
+    {
+      "event_id": "event-duplicate-webhook-001",
+      "conversation_id": "conversation-duplicate-webhook-001",
+      "customer_id": "customer-lukas-huber",
+      "property_id": "property-landstrasser-42",
+      "intent": "maintenance",
+      "category": "electrical",
+      "description": "The hallway light is flickering and switches off intermittently.",
+      "severity": "normal"
+    }
+  ]
+}
