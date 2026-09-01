@@ -13,6 +13,12 @@ EXPECTED_EXPORTS = {
     "03-emergency-escalation.json",
     "04-post-call-processing.json",
 }
+EXPECTED_WEBHOOK_PATHS = {
+    "01-caller-context.json": "caller-context",
+    "02-maintenance-request.json": "maintenance-request",
+    "03-emergency-escalation.json": "emergency-escalation",
+    "04-post-call-processing.json": "fonio-post-call-processing",
+}
 HTTP_REQUEST_TYPE = "n8n-nodes-base.httpRequest"
 GENERIC_NODE_NAME = re.compile(
     r"^(?:HTTP Request|Edit Fields|Code in JavaScript|Respond to Webhook)\d*$|^If$",
@@ -129,6 +135,20 @@ def test_exports_have_expected_top_level_metadata(
             assert isinstance(workflow["tags"], list), filename
         if "meta" in workflow:
             assert isinstance(workflow["meta"], dict), filename
+
+
+def test_exports_use_stable_descriptive_webhook_paths(
+    exports: dict[str, dict[str, Any]],
+) -> None:
+    for filename, expected_path in EXPECTED_WEBHOOK_PATHS.items():
+        webhook_nodes = [
+            node
+            for node in exports[filename]["nodes"]
+            if node.get("type") == "n8n-nodes-base.webhook"
+        ]
+        assert len(webhook_nodes) == 1, filename
+        assert webhook_nodes[0]["parameters"]["path"] == expected_path, filename
+        assert webhook_nodes[0].get("webhookId"), filename
 
 
 def test_exports_contain_no_secrets_or_hardcoded_api_keys(
@@ -291,3 +311,24 @@ def test_ticket_post_bodies_only_contain_ticket_schema_fields(
                 f"{filename}: {node['name']} puts header fields in its body: "
                 f"{sorted(forbidden)}"
             )
+
+
+def test_maintenance_lookup_preserves_an_empty_ticket_array(
+    exports: dict[str, dict[str, Any]],
+) -> None:
+    workflow = exports["02-maintenance-request.json"]
+    lookup = next(
+        node
+        for node in workflow["nodes"]
+        if node["name"] == "Check Customer Open Tickets"
+    )
+    response_options = lookup["parameters"]["options"]["response"]["response"]
+    assert response_options.get("fullResponse") is True
+    assert response_options.get("responseFormat") == "json"
+
+    matcher = next(
+        node
+        for node in workflow["nodes"]
+        if node["name"] == "Find Matching Open Ticket"
+    )
+    assert "item.json.body ?? item.json" in matcher["parameters"]["jsCode"]

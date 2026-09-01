@@ -1,10 +1,11 @@
 {
+  "id": "fonio-maintenance-request",
   "name": "Fonio Maintenance Request",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "36f7ee40-074a-44f6-aeb9-e0f0c75b92ad",
+        "path": "maintenance-request",
         "responseMode": "responseNode",
         "options": {}
       },
@@ -30,6 +31,12 @@
           ]
         },
         "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          },
           "timeout": 5000
         }
       },
@@ -51,7 +58,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $('Receive Maintenance Request').first().json.body;\nconst tickets = $input.all().flatMap((item) => Array.isArray(item.json) ? item.json : [item.json]);\nconst existingTicket = tickets.find((ticket) =>\n  ticket.customer_id === body.customer_id &&\n  ticket.property_id === body.property_id &&\n  ticket.category === body.category &&\n  ['open', 'in_progress'].includes(ticket.status)\n) ?? null;\nconst priorityBySeverity = { low: 'low', normal: 'medium', high: 'high', critical: 'critical' };\n\nreturn [{\n  json: {\n    request: {\n      event_id: body.event_id,\n      conversation_id: body.conversation_id,\n      customer_id: body.customer_id,\n      property_id: body.property_id,\n      category: body.category,\n      description: body.description,\n      severity: body.severity\n    },\n    priority: priorityBySeverity[body.severity] ?? 'medium',\n    existing_ticket: existingTicket,\n    matching_ticket_found: existingTicket !== null\n  }\n}];"
+        "jsCode": "const body = $('Receive Maintenance Request').first().json.body;\nconst tickets = $input.all().flatMap((item) => {\n  const responseBody = item.json.body ?? item.json;\n  return Array.isArray(responseBody) ? responseBody : [responseBody];\n});\nconst existingTicket = tickets.find((ticket) =>\n  ticket.customer_id === body.customer_id &&\n  ticket.property_id === body.property_id &&\n  ticket.category === body.category &&\n  ['open', 'in_progress'].includes(ticket.status)\n) ?? null;\nconst priorityBySeverity = { low: 'low', normal: 'medium', high: 'high', critical: 'critical' };\n\nreturn [{\n  json: {\n    request: {\n      event_id: body.event_id,\n      conversation_id: body.conversation_id,\n      customer_id: body.customer_id,\n      property_id: body.property_id,\n      category: body.category,\n      description: body.description,\n      severity: body.severity\n    },\n    priority: priorityBySeverity[body.severity] ?? 'medium',\n    existing_ticket: existingTicket,\n    matching_ticket_found: existingTicket !== null\n  }\n}];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
